@@ -46,3 +46,10 @@ htmlcov/
 
 # Database
 *.db
+
+# Backups
+backups/
+*.sql
+
+# Docker
+docker-compose.override.yml

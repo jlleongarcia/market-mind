@@ -1,0 +1,49 @@
+╔══════════════════════════════════════════════════════════════╗
+║                    🧠 MarketMind                             ║
+║          Collaborator Setup - Copy & Paste This!             ║
+╚══════════════════════════════════════════════════════════════╝
+
+STEP 1: Clone the repository
+-----------------------------
+git clone https://github.com/jlleongarcia/PyStocks.git
+cd PyStocks
+
+
+STEP 2: Run setup (choose ONE)
+-------------------------------
+
+Option A - Using Make (Recommended):
+  make setup
+
+Option B - Using Setup Script:
+  ./setup.sh
+
+
+STEP 3: Access the application
+-------------------------------
+Open your browser:
+  • Main Site:    http://localhost:8300
+  • Admin Panel:  http://localhost:8300/admin
+    Username: admin
+    Password: admin123
+  • API Root:     http://localhost:8300/api
+
+
+COMMON COMMANDS
+---------------
+make up         Start application
+make down       Stop application
+make logs       View logs
+make restart    Restart everything
+make help       Show all commands
+
+
+NEED HELP?
+----------
+• Quick Start:   QUICKSTART.md
+• Commands:      CHEATSHEET.md
+• Contributing:  CONTRIBUTING.md
+
+
+THAT'S IT! 🎉
+You're ready to start developing!

@@ -4,6 +4,20 @@
 
 MarketMind is a comprehensive stock market research and portfolio management platform built with Django and modern web technologies. Designed for both beginner and experienced investors, it combines cutting-edge analytics with real-time market data to help you make informed investment decisions.
 
+## 👥 For Collaborators
+
+**First time here?** Just run this in your terminal:
+
+```bash
+git clone https://github.com/jlleongarcia/PyStocks.git
+cd PyStocks
+make setup
+```
+
+Then open http://localhost:8300 - **Done!** 🎉
+
+📖 See [CONTRIBUTING.md](CONTRIBUTING.md) and [QUICKSTART.md](QUICKSTART.md) for detailed setup instructions.
+
 ## ✨ Features
 
 - **Real-Time Analytics** - Live market data and advanced charting tools
@@ -13,20 +27,81 @@ MarketMind is a comprehensive stock market research and portfolio management pla
 - **Performance Reports** - Comprehensive portfolio analytics and insights
 - **Bank-Level Security** - Industry-leading encryption and security protocols
 
-## 🚀 Quick Start
+## 🚀 Quick Start for Collaborators
+
+**New to the project?** Getting started is super easy!
+
+### One-Command Setup (Recommended)
 
 ```bash
 # Clone the repository
 git clone https://github.com/jlleongarcia/PyStocks.git
 cd PyStocks
 
-# Start with Docker
-docker-compose up -d --build
+# Complete setup with one command!
+make setup
+```
 
-# Access the application
-# Web Interface: http://localhost:8300
-# Admin Panel: http://localhost:8300/admin
-# API Root: http://localhost:8300/api
+That's it! The `make setup` command will:
+- ✅ Create `.env` file from template
+- ✅ Build Docker containers
+- ✅ Start all services (database + web)
+- ✅ Run database migrations
+- ✅ Collect static files
+- ✅ Create default superuser (admin/admin123)
+
+**No Make?** Use the setup script instead:
+```bash
+./setup.sh
+```
+
+### Alternative: Automated Setup Script
+
+```bash
+# Clone the repository
+git clone https://github.com/jlleongarcia/PyStocks.git
+cd PyStocks
+
+# Run the setup script
+./setup.sh
+```
+
+### Option 3: Manual Setup
+
+```bash
+# Clone and enter directory
+git clone https://github.com/jlleongarcia/PyStocks.git
+cd PyStocks
+
+# Copy environment file
+cp .env.example .env
+
+# Build and start containers
+docker-compose build
+docker-compose up -d
+
+# Wait for database, then run migrations
+docker-compose exec web python manage.py migrate
+docker-compose exec web python manage.py collectstatic --noinput
+```
+
+### 🌐 Access Points
+
+After setup, access the application at:
+- **Landing Page:** http://localhost:8300
+- **Admin Panel:** http://localhost:8300/admin
+- **API Root:** http://localhost:8300/api
+
+### Common Make Commands
+
+```bash
+make help           # Show all available commands
+make up             # Start all services
+make down           # Stop all services
+make logs           # View application logs
+make migrate        # Run database migrations
+make test           # Run tests
+make bash           # Open shell in web container
 ```
 
 ## 🔐 Default Credentials
@@ -36,10 +111,14 @@ docker-compose up -d --build
 
 ## 📚 Documentation
 
-For detailed setup instructions, API documentation, and development guides, see:
-- [Setup Guide](SETUP_GUIDE.md)
-- [README Setup](README_SETUP.md)
-- [Business Requirements Document](brd.md)
+Quick links for collaborators:
+- 🚀 **[QUICKSTART.md](QUICKSTART.md)** - Get started in under 5 minutes
+- 📋 **[CHEATSHEET.md](CHEATSHEET.md)** - Command reference card
+- 🤝 **[CONTRIBUTING.md](CONTRIBUTING.md)** - Detailed contribution guide
+- ⚙️ **[SETUP_GUIDE.md](SETUP_GUIDE.md)** - In-depth setup instructions
+- 📖 **[brd.md](brd.md)** - Business requirements document
+
+**First time?** Start with [QUICKSTART.md](QUICKSTART.md)!
 
 ## 🛠️ Tech Stack
 
