@@ -19,7 +19,12 @@ Option B - Using Setup Script:
   ./setup.sh
 
 
-STEP 3: Access the application
+STEP 3: Setup git hooks (auto-run migrations after pull)
+---------------------------------------------------------
+./.githooks/setup-hooks.sh
+
+
+STEP 4: Access the application
 -------------------------------
 Open your browser:
   • Main Site:    http://localhost:8300

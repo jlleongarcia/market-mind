@@ -88,6 +88,9 @@ else
         echo "   Username: admin"
         echo "   Password: admin123"
         echo ""
+        echo "🔧 Setting up git hooks..."
+        ./.githooks/setup-hooks.sh
+        echo ""
     else
         echo ""
         echo "📋 To set up later, run:"

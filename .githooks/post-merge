@@ -1,0 +1,20 @@
+#!/bin/bash
+
+# Git post-merge hook
+# Automatically runs migrations if new migration files were pulled
+
+echo "🔍 Checking for new migrations..."
+
+# Check if any migration files changed
+MIGRATIONS_CHANGED=$(git diff-tree -r --name-only --no-commit-id ORIG_HEAD HEAD | grep 'migrations/')
+
+if [ -n "$MIGRATIONS_CHANGED" ]; then
+    echo "📊 New migration files detected:"
+    echo "$MIGRATIONS_CHANGED"
+    echo ""
+    echo "🔄 Running migrations..."
+    docker-compose exec -T web python manage.py migrate
+    echo "✅ Migrations complete!"
+else
+    echo "✅ No new migrations detected"
+fi
