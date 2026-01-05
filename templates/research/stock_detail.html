@@ -1,0 +1,534 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}{{ stock.symbol }} - {{ stock.name }} - MarketMind{% endblock %}
+
+{% block extra_css %}
+<style>
+    .stock-header {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+        padding: 120px 0 48px;
+    }
+    
+    .stock-title {
+        font-size: 3rem;
+        font-weight: 800;
+        margin-bottom: 8px;
+    }
+    
+    .stock-subtitle {
+        font-size: 1.25rem;
+        opacity: 0.9;
+    }
+    
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 16px;
+        margin-top: 32px;
+    }
+    
+    .stat-card {
+        background: rgba(255,255,255,0.15);
+        backdrop-filter: blur(10px);
+        padding: 20px;
+        border-radius: 12px;
+    }
+    
+    .stat-label {
+        font-size: 0.875rem;
+        opacity: 0.8;
+        margin-bottom: 4px;
+    }
+    
+    .stat-value {
+        font-size: 1.5rem;
+        font-weight: 700;
+    }
+    
+    .content-section {
+        background: white;
+        border-radius: 12px;
+        padding: 32px;
+        margin-bottom: 24px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    .section-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        margin-bottom: 24px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    
+    .chart-container {
+        position: relative;
+        height: 400px;
+        margin-top: 24px;
+    }
+    
+    .time-filter {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 16px;
+    }
+    
+    .time-btn {
+        padding: 8px 16px;
+        border-radius: 8px;
+        border: 2px solid var(--gray-300);
+        background: white;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-size: 0.875rem;
+        font-weight: 600;
+    }
+    
+    .time-btn:hover, .time-btn.active {
+        border-color: var(--primary);
+        background: var(--primary);
+        color: white;
+    }
+    
+    .dividend-table, .split-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 16px;
+    }
+    
+    .dividend-table th, .split-table th {
+        text-align: left;
+        padding: 12px;
+        background: var(--gray-100);
+        font-weight: 600;
+        font-size: 0.875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .dividend-table td, .split-table td {
+        padding: 12px;
+        border-bottom: 1px solid var(--gray-200);
+    }
+    
+    .dividend-table tr:hover, .split-table tr:hover {
+        background: var(--gray-50);
+    }
+    
+    .back-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: rgba(255,255,255,0.9);
+        margin-bottom: 16px;
+        font-size: 0.938rem;
+        transition: all 0.2s;
+    }
+    
+    .back-btn:hover {
+        color: white;
+        transform: translateX(-4px);
+    }
+    
+    .refresh-btn {
+        background: rgba(255,255,255,0.15);
+        border: 2px solid rgba(255,255,255,0.3);
+        color: white;
+        padding: 8px 16px;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .refresh-btn:hover {
+        background: rgba(255,255,255,0.25);
+        border-color: rgba(255,255,255,0.5);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="stock-header">
+    <div class="container">
+        <a href="{% url 'research:stock_list_page' %}" class="back-btn">
+            <i class="bi bi-arrow-left"></i> Back to Stocks
+        </a>
+        <div style="display: flex; justify-content: space-between; align-items: start;">
+            <div>
+                <h1 class="stock-title">{{ stock.symbol }}</h1>
+                <p class="stock-subtitle">{{ stock.name }}</p>
+            </div>
+            <button class="refresh-btn" onclick="refreshData()">
+                <i class="bi bi-arrow-clockwise"></i> Refresh Data
+            </button>
+        </div>
+        
+        <div class="stats-grid">
+            {% if stock.sector %}
+            <div class="stat-card">
+                <div class="stat-label">Sector</div>
+                <div class="stat-value">{{ stock.sector }}</div>
+            </div>
+            {% endif %}
+            {% if stock.industry %}
+            <div class="stat-card">
+                <div class="stat-label">Industry</div>
+                <div class="stat-value">{{ stock.industry }}</div>
+            </div>
+            {% endif %}
+            {% if stock.exchange %}
+            <div class="stat-card">
+                <div class="stat-label">Exchange</div>
+                <div class="stat-value">{{ stock.exchange }}</div>
+            </div>
+            {% endif %}
+            <div class="stat-card">
+                <div class="stat-label">Last Updated</div>
+                <div class="stat-value">{{ stock.last_updated|date:"M d" }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container" style="margin-top: -32px; padding-bottom: 48px;">
+    <!-- Price Chart -->
+    <div class="content-section">
+        <h2 class="section-title">
+            <i class="bi bi-graph-up"></i>
+            Price History
+        </h2>
+        
+        <div class="time-filter">
+            <button class="time-btn" onclick="loadPriceData(7)">1W</button>
+            <button class="time-btn active" onclick="loadPriceData(30)">1M</button>
+            <button class="time-btn" onclick="loadPriceData(90)">3M</button>
+            <button class="time-btn" onclick="loadPriceData(180)">6M</button>
+            <button class="time-btn" onclick="loadPriceData(365)">1Y</button>
+            <button class="time-btn" onclick="loadPriceData(1825)">5Y</button>
+        </div>
+        
+        <div class="chart-container">
+            <canvas id="priceChart"></canvas>
+        </div>
+    </div>
+    
+    <!-- Volume Chart -->
+    <div class="content-section">
+        <h2 class="section-title">
+            <i class="bi bi-bar-chart"></i>
+            Trading Volume
+        </h2>
+        <div class="chart-container" style="height: 250px;">
+            <canvas id="volumeChart"></canvas>
+        </div>
+    </div>
+    
+    <!-- Dividends -->
+    {% if has_dividends %}
+    <div class="content-section">
+        <h2 class="section-title">
+            <i class="bi bi-cash-coin"></i>
+            Dividend History
+        </h2>
+        <div style="overflow-x: auto;">
+            <table class="dividend-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Amount</th>
+                        <th>Currency</th>
+                    </tr>
+                </thead>
+                <tbody id="dividendTableBody">
+                    <tr><td colspan="3" style="text-align: center;">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+    
+    <!-- Splits -->
+    {% if has_splits %}
+    <div class="content-section">
+        <h2 class="section-title">
+            <i class="bi bi-scissors"></i>
+            Stock Splits
+        </h2>
+        <div style="overflow-x: auto;">
+            <table class="split-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Ratio</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody id="splitTableBody">
+                    <tr><td colspan="3" style="text-align: center;">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+<script>
+const symbol = '{{ stock.symbol }}';
+const stockCurrency = '{{ stock.currency|default:"USD" }}';
+let priceChart = null;
+let volumeChart = null;
+let currentDays = 30;
+
+// Load price data and create chart
+async function loadPriceData(days) {
+    currentDays = days;
+    
+    // Update active button
+    document.querySelectorAll('.time-btn').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+    
+    try {
+        const response = await fetch(`/research/stocks/${symbol}/prices/?days=${days}`);
+        const data = await response.json();
+        
+        if (data.prices && data.prices.length > 0) {
+            updatePriceChart(data.prices);
+            updateVolumeChart(data.prices);
+        }
+    } catch (error) {
+        console.error('Error loading price data:', error);
+    }
+}
+
+function updatePriceChart(prices) {
+    const ctx = document.getElementById('priceChart').getContext('2d');
+    
+    const dates = prices.map(p => p.date);
+    const closes = prices.map(p => parseFloat(p.close));
+    
+    if (priceChart) {
+        priceChart.destroy();
+    }
+    
+    priceChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: dates,
+            datasets: [{
+                label: 'Close Price',
+                data: closes,
+                borderColor: 'rgb(99, 102, 241)',
+                backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.4,
+                pointRadius: 0,
+                pointHoverRadius: 6,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                intersect: false,
+                mode: 'index',
+            },
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    padding: 12,
+                    titleFont: { size: 14 },
+                    bodyFont: { size: 13 },
+                    callbacks: {
+                        label: function(context) {
+                            return '$' + context.parsed.y.toFixed(2);
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: false,
+                    ticks: {
+                        callback: function(value) {
+                            return '$' + value.toFixed(2);
+                        }
+                    }
+                },
+                x: {
+                    ticks: {
+                        maxTicksLimit: 8
+                    }
+                }
+            }
+        }
+    });
+}
+
+function updateVolumeChart(prices) {
+    const ctx = document.getElementById('volumeChart').getContext('2d');
+    
+    const dates = prices.map(p => p.date);
+    const volumes = prices.map(p => parseInt(p.volume));
+    
+    if (volumeChart) {
+        volumeChart.destroy();
+    }
+    
+    volumeChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: dates,
+            datasets: [{
+                label: 'Volume',
+                data: volumes,
+                backgroundColor: 'rgba(139, 92, 246, 0.6)',
+                borderColor: 'rgb(139, 92, 246)',
+                borderWidth: 1,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    padding: 12,
+                    callbacks: {
+                        label: function(context) {
+                            return context.parsed.y.toLocaleString() + ' shares';
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return (value / 1000000).toFixed(1) + 'M';
+                        }
+                    }
+                },
+                x: {
+                    ticks: {
+                        maxTicksLimit: 8
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Load dividends
+async function loadDividends() {
+    try {
+        const response = await fetch(`/research/stocks/${symbol}/dividends/`);
+        const data = await response.json();
+        
+        const tbody = document.getElementById('dividendTableBody');
+        if (data.dividends && data.dividends.length > 0) {
+            tbody.innerHTML = data.dividends.slice(0, 10).map(d => `
+                <tr>
+                    <td>${new Date(d.date).toLocaleDateString()}</td>
+                    <td style="font-weight: 600; color: var(--success);">$${parseFloat(d.amount).toFixed(4)}</td>
+                    <td>${stockCurrency}</td>
+                </tr>
+            `).join('');
+        } else {
+            tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-secondary);">No dividend data available</td></tr>';
+        }
+    } catch (error) {
+        console.error('Error loading dividends:', error);
+    }
+}
+
+// Load splits
+async function loadSplits() {
+    try {
+        const response = await fetch(`/research/stocks/${symbol}/splits/`);
+        const data = await response.json();
+        
+        const tbody = document.getElementById('splitTableBody');
+        if (data.splits && data.splits.length > 0) {
+            tbody.innerHTML = data.splits.map(s => `
+                <tr>
+                    <td>${new Date(s.date).toLocaleDateString()}</td>
+                    <td style="font-weight: 600; color: var(--primary);">${s.ratio}</td>
+                    <td>${s.split_from} share${s.split_from > 1 ? 's' : ''} became ${s.split_to}</td>
+                </tr>
+            `).join('');
+        } else {
+            tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-secondary);">No split data available</td></tr>';
+        }
+    } catch (error) {
+        console.error('Error loading splits:', error);
+    }
+}
+
+// Refresh all data
+async function refreshData() {
+    const btn = event.target.closest('.refresh-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Refreshing...';
+    
+    try {
+        const response = await fetch('/research/fetch/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({ symbol: symbol, period: '3mo' })
+        });
+        
+        if (response.ok) {
+            location.reload();
+        } else {
+            alert('Failed to refresh data. Please try again.');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Refresh Data';
+        }
+    } catch (error) {
+        alert('Error: ' + error.message);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Refresh Data';
+    }
+}
+
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+// Initialize on page load
+window.addEventListener('load', function() {
+    loadPriceData(30);
+    {% if has_dividends %}loadDividends();{% endif %}
+    {% if has_splits %}loadSplits();{% endif %}
+});
+</script>
+{% endblock %}

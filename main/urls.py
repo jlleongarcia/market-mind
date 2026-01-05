@@ -39,8 +39,10 @@ urlpatterns = [
     path('password-change-required/', password_change_required, name='password_change_required'),
     path('logout/', auth_views.LogoutView.as_view(next_page='home'), name='logout'),
     
+    # Research app (includes both frontend and API routes)
+    path('research/', include('research.urls')),
+    
     # API endpoints
-    path('api/research/', include('research.urls')),
     path('api/portfolio/', include('portfolio.urls')),
     
     # JWT Authentication

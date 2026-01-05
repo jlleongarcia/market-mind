@@ -1,0 +1,365 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Stock Research - MarketMind{% endblock %}
+
+{% block extra_css %}
+<style>
+    .stock-card {
+        background: white;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 16px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        transition: transform 0.2s, box-shadow 0.2s;
+        cursor: pointer;
+    }
+    
+    .stock-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    
+    .stock-symbol {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--primary);
+        margin-bottom: 4px;
+    }
+    
+    .stock-name {
+        color: var(--text-secondary);
+        font-size: 0.95rem;
+        margin-bottom: 8px;
+    }
+    
+    .stock-meta {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+    }
+    
+    .stock-meta-item {
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .stock-meta-label {
+        font-size: 0.75rem;
+        color: var(--text-tertiary);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .stock-meta-value {
+        font-size: 0.9rem;
+        color: var(--text-primary);
+        font-weight: 600;
+    }
+    
+    .search-box {
+        background: white;
+        padding: 32px;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        margin-bottom: 32px;
+    }
+    
+    .filter-pills {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 16px;
+    }
+    
+    .filter-pill {
+        padding: 8px 16px;
+        border-radius: 20px;
+        border: 2px solid var(--gray-300);
+        background: white;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-size: 0.875rem;
+    }
+    
+    .filter-pill:hover, .filter-pill.active {
+        border-color: var(--primary);
+        background: var(--primary);
+        color: white;
+    }
+    
+    .empty-state {
+        text-align: center;
+        padding: 64px 32px;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    .empty-state i {
+        font-size: 4rem;
+        color: var(--gray-300);
+        margin-bottom: 16px;
+    }
+    
+    .page-header {
+        padding: 120px 0 48px;
+        text-align: center;
+    }
+    
+    .page-header h1 {
+        margin-bottom: 16px;
+    }
+    
+    .page-header p {
+        color: var(--text-secondary);
+        font-size: 1.125rem;
+    }
+    
+    .add-stock-btn {
+        position: fixed;
+        bottom: 32px;
+        right: 32px;
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        background: var(--primary);
+        color: white;
+        border: none;
+        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        transition: all 0.2s;
+    }
+    
+    .add-stock-btn:hover {
+        transform: scale(1.1);
+        box-shadow: 0 6px 16px rgba(99, 102, 241, 0.5);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="container">
+        <h1>📊 Stock Research</h1>
+        <p>Search and analyze stocks with real-time data and historical insights</p>
+    </div>
+</div>
+
+<div class="container" style="padding-bottom: 100px;">
+    <!-- Search Box -->
+    <div class="search-box">
+        <form method="GET" action="{% url 'research:stock_list_page' %}">
+            <div style="display: flex; gap: 12px;">
+                <input 
+                    type="text" 
+                    name="search" 
+                    class="form-control" 
+                    placeholder="Search by symbol or company name..." 
+                    value="{{ search_query }}"
+                    style="flex: 1; padding: 12px 20px; border-radius: 8px; border: 2px solid var(--gray-300);"
+                >
+                <button type="submit" class="btn btn-primary" style="padding: 12px 32px;">
+                    <i class="bi bi-search"></i> Search
+                </button>
+            </div>
+        </form>
+        
+        {% if sectors %}
+        <div class="filter-pills">
+            <a href="{% url 'research:stock_list_page' %}" class="filter-pill {% if not sector_filter %}active{% endif %}">All</a>
+            {% for sector in sectors %}
+                <a href="?sector={{ sector }}" class="filter-pill {% if sector_filter == sector %}active{% endif %}">
+                    {{ sector }}
+                </a>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+    
+    <!-- Stock List -->
+    {% if stocks %}
+        <div style="margin-bottom: 16px; color: var(--text-secondary);">
+            Found {{ stocks|length }} stock{{ stocks|length|pluralize }}
+        </div>
+        
+        <div class="stock-list">
+            {% for stock in stocks %}
+            <div class="stock-card" onclick="window.location.href='{% url 'research:stock_detail_page' stock.symbol %}'">
+                <div class="stock-symbol">{{ stock.symbol }}</div>
+                <div class="stock-name">{{ stock.name }}</div>
+                <div class="stock-meta">
+                    {% if stock.sector %}
+                    <div class="stock-meta-item">
+                        <span class="stock-meta-label">Sector</span>
+                        <span class="stock-meta-value">{{ stock.sector }}</span>
+                    </div>
+                    {% endif %}
+                    {% if stock.industry %}
+                    <div class="stock-meta-item">
+                        <span class="stock-meta-label">Industry</span>
+                        <span class="stock-meta-value">{{ stock.industry }}</span>
+                    </div>
+                    {% endif %}
+                    {% if stock.exchange %}
+                    <div class="stock-meta-item">
+                        <span class="stock-meta-label">Exchange</span>
+                        <span class="stock-meta-value">{{ stock.exchange }}</span>
+                    </div>
+                    {% endif %}
+                    <div class="stock-meta-item">
+                        <span class="stock-meta-label">Last Updated</span>
+                        <span class="stock-meta-value">{{ stock.last_updated|date:"M d, Y" }}</span>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <i class="bi bi-inbox"></i>
+            <h3>No stocks found</h3>
+            <p style="color: var(--text-secondary); margin-bottom: 24px;">
+                {% if search_query %}
+                    No results for "{{ search_query }}". Try a different search term.
+                {% else %}
+                    Start by adding some stocks to your research database.
+                {% endif %}
+            </p>
+            <button class="btn btn-primary" onclick="document.getElementById('addStockModal').style.display='flex'">
+                <i class="bi bi-plus-circle"></i> Add Your First Stock
+            </button>
+        </div>
+    {% endif %}
+</div>
+
+<!-- Add Stock Modal -->
+<div id="addStockModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 2000; align-items: center; justify-content: center;">
+    <div style="background: white; padding: 32px; border-radius: 12px; max-width: 500px; width: 90%;">
+        <h3 style="margin-bottom: 24px;">Add New Stock</h3>
+        <form id="addStockForm">
+            <div style="margin-bottom: 16px;">
+                <label style="display: block; margin-bottom: 8px; font-weight: 600;">Stock Symbol</label>
+                <input 
+                    type="text" 
+                    id="stockSymbol" 
+                    class="form-control" 
+                    placeholder="e.g., AAPL, MSFT, GOOGL"
+                    style="padding: 12px; border-radius: 8px; text-transform: uppercase;"
+                    required
+                >
+            </div>
+            <div style="margin-bottom: 16px;">
+                <label style="display: block; margin-bottom: 8px; font-weight: 600;">Period</label>
+                <select id="stockPeriod" class="form-control" style="padding: 12px; border-radius: 8px;">
+                    <option value="1mo">1 Month</option>
+                    <option value="3mo">3 Months</option>
+                    <option value="6mo">6 Months</option>
+                    <option value="1y" selected>1 Year</option>
+                    <option value="2y">2 Years</option>
+                    <option value="5y">5 Years</option>
+                    <option value="max">Maximum</option>
+                </select>
+            </div>
+            <div style="display: flex; gap: 12px;">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('addStockModal').style.display='none'" style="flex: 1;">
+                    Cancel
+                </button>
+                <button type="submit" class="btn btn-primary" style="flex: 1;">
+                    <i class="bi bi-download"></i> Fetch Data
+                </button>
+            </div>
+        </form>
+        <div id="fetchStatus" style="margin-top: 16px; display: none;"></div>
+    </div>
+</div>
+
+<!-- Floating Action Button -->
+<button class="add-stock-btn" onclick="document.getElementById('addStockModal').style.display='flex'">
+    <i class="bi bi-plus"></i>
+</button>
+
+<script>
+document.getElementById('addStockForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const symbol = document.getElementById('stockSymbol').value.toUpperCase();
+    const period = document.getElementById('stockPeriod').value;
+    const statusDiv = document.getElementById('fetchStatus');
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    
+    // Show loading
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Fetching...';
+    statusDiv.style.display = 'block';
+    statusDiv.innerHTML = `<div style="color: var(--primary);">⏳ Fetching data for ${symbol}...</div>`;
+    
+    try {
+        const response = await fetch('/research/fetch/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({ symbol, period })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            statusDiv.innerHTML = `
+                <div style="color: var(--success); padding: 12px; background: #d1fae5; border-radius: 8px;">
+                    ✓ Successfully fetched ${symbol}!<br>
+                    <small>Prices: ${data.prices_created}, Dividends: ${data.dividends_saved}, Splits: ${data.splits_saved}</small>
+                </div>
+            `;
+            setTimeout(() => {
+                window.location.href = '/research/stocks/' + symbol + '/';
+            }, 1500);
+        } else {
+            statusDiv.innerHTML = `
+                <div style="color: var(--danger); padding: 12px; background: #fee2e2; border-radius: 8px;">
+                    ✗ Error: ${data.errors ? data.errors.join(', ') : 'Failed to fetch data'}
+                </div>
+            `;
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="bi bi-download"></i> Fetch Data';
+        }
+    } catch (error) {
+        statusDiv.innerHTML = `
+            <div style="color: var(--danger); padding: 12px; background: #fee2e2; border-radius: 8px;">
+                ✗ Error: ${error.message}
+            </div>
+        `;
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="bi bi-download"></i> Fetch Data';
+    }
+});
+
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+// Close modal on outside click
+document.getElementById('addStockModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        this.style.display = 'none';
+    }
+});
+</script>
+{% endblock %}
