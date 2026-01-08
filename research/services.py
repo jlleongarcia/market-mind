@@ -33,21 +33,41 @@ class StockDataFetcher:
         """
         try:
             ticker = yf.Ticker(symbol.upper())
-            info = ticker.info
             
-            if not info or 'symbol' not in info:
-                logger.warning(f"No data found for symbol: {symbol}")
-                return None
+            # Try to get info first
+            try:
+                info = ticker.info
+                if info and 'symbol' in info:
+                    return {
+                        'symbol': symbol.upper(),
+                        'name': info.get('longName', info.get('shortName', symbol)),
+                        'sector': info.get('sector'),
+                        'industry': info.get('industry'),
+                        'exchange': info.get('exchange'),
+                        'currency': info.get('currency', 'USD'),
+                        'country': info.get('country'),
+                    }
+            except Exception as info_error:
+                logger.warning(f"Could not fetch info for {symbol}, trying historical data: {info_error}")
             
-            return {
-                'symbol': symbol.upper(),
-                'name': info.get('longName', info.get('shortName', symbol)),
-                'sector': info.get('sector'),
-                'industry': info.get('industry'),
-                'exchange': info.get('exchange'),
-                'currency': info.get('currency', 'USD'),
-                'country': info.get('country'),
-            }
+            # Fallback: try to get historical data to verify symbol exists
+            hist = ticker.history(period="5d")
+            if not hist.empty:
+                logger.info(f"Symbol {symbol} verified via historical data")
+                # Create minimal stock info
+                return {
+                    'symbol': symbol.upper(),
+                    'name': f"{symbol.upper()} (Historical Data Only)",
+                    'sector': None,
+                    'industry': None,
+                    'exchange': None,
+                    'currency': 'USD',
+                    'country': None,
+                }
+            
+            logger.warning(f"No data found for symbol: {symbol}")
+            return None
+            
         except Exception as e:
             logger.error(f"Error fetching info for {symbol}: {str(e)}")
             return None

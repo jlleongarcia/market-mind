@@ -6,9 +6,15 @@ djangorestframework==3.14.0
 psycopg2-binary==2.9.9
 
 # Stock Market Data
-yfinance==0.2.37
+yfinance==1.0.0
 pandas==2.2.0
 numpy==1.26.3
+
+# yfinance 1.0 dependencies
+curl-cffi>=0.7,<0.14
+platformdirs>=2.0.0
+protobuf>=3.19.0
+websockets>=13.0
 
 # Environment Variables
 python-decouple==3.8
