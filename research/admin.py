@@ -1,7 +1,44 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import User
+from django.contrib.admin import AdminSite
+from copy import deepcopy
 from .models import Stock, HistoricalPrice, Dividend, StockSplit, Watchlist, WatchlistItem, UserRegistrationRequest
+
+
+class CustomAdminSite(AdminSite):
+    def get_app_list(self, request, app_label=None):
+        """
+        Reorganize the app list to show UserRegistrationRequest
+        in the Authentication and Authorization section
+        """
+        app_list = super().get_app_list(request, app_label)
+        
+        # Find UserRegistrationRequest in Research and move it to Auth
+        user_reg_model = None
+        
+        for app in app_list:
+            if app['app_label'] == 'research':
+                models_to_keep = []
+                for model in app['models']:
+                    if model['object_name'] == 'UserRegistrationRequest':
+                        user_reg_model = deepcopy(model)
+                    else:
+                        models_to_keep.append(model)
+                app['models'] = models_to_keep
+        
+        # Add UserRegistrationRequest to Auth if found
+        if user_reg_model:
+            for app in app_list:
+                if app['app_label'] == 'auth':
+                    app['models'].append(user_reg_model)
+                    break
+        
+        return app_list
+
+
+# Use the custom AdminSite
+admin.site.__class__ = CustomAdminSite
 
 
 @admin.register(Stock)
