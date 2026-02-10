@@ -133,22 +133,78 @@
         transform: translateX(-4px);
     }
     
-    .refresh-btn {
-        background: rgba(255,255,255,0.15);
-        border: 2px solid rgba(255,255,255,0.3);
-        color: white;
-        padding: 8px 16px;
-        border-radius: 8px;
-        cursor: pointer;
-        transition: all 0.2s;
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
+    .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 20px;
     }
     
-    .refresh-btn:hover {
-        background: rgba(255,255,255,0.25);
-        border-color: rgba(255,255,255,0.5);
+    .metric-card {
+        background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+        border: 2px solid var(--gray-200);
+        border-radius: 12px;
+        padding: 20px;
+        transition: all 0.3s;
+    }
+    
+    .metric-card:hover {
+        border-color: var(--primary);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        transform: translateY(-2px);
+    }
+    
+    .metric-header {
+        font-size: 0.875rem;
+        color: var(--gray-600);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 8px;
+        font-weight: 600;
+    }
+    
+    .metric-value {
+        font-size: 2rem;
+        font-weight: 700;
+        color: var(--gray-900);
+        line-height: 1;
+    }
+    
+    .metric-value.positive {
+        color: var(--success);
+    }
+    
+    .metric-value.negative {
+        color: var(--danger);
+    }
+    
+    .metric-subtitle {
+        font-size: 0.813rem;
+        color: var(--gray-500);
+        margin-top: 4px;
+    }
+    
+    .dividend-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: var(--success);
+        color: white;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.813rem;
+        font-weight: 600;
+    }
+    
+    .no-dividend-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: var(--gray-400);
+        color: white;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.813rem;
+        font-weight: 600;
     }
 </style>
 {% endblock %}
@@ -177,9 +233,6 @@
                 </div>
                 {% endif %}
             </div>
-            <button class="refresh-btn" onclick="refreshData()">
-                <i class="bi bi-arrow-clockwise"></i> Refresh Data
-            </button>
         </div>
         
         <div class="stats-grid">
@@ -210,6 +263,100 @@
 </div>
 
 <div class="container" style="margin-top: -32px; padding-bottom: 48px;">
+    <!-- Financial Metrics -->
+    {% if financial_metrics %}
+    <div class="content-section">
+        <h2 class="section-title">
+            <i class="bi bi-graph-up-arrow"></i>
+            Financial Metrics
+            {% if financial_metrics.pays_dividend %}
+                <span class="dividend-badge">
+                    <i class="bi bi-cash-coin"></i>
+                    Dividend Stock
+                </span>
+            {% else %}
+                <span class="no-dividend-badge">
+                    <i class="bi bi-x-circle"></i>
+                    Non-Dividend
+                </span>
+            {% endif %}
+        </h2>
+        
+        <div class="metrics-grid">
+            <!-- Valuation Metrics -->
+            {% if financial_metrics.trailing_pe %}
+            <div class="metric-card">
+                <div class="metric-header">Trailing P/E</div>
+                <div class="metric-value">{{ financial_metrics.trailing_pe }}</div>
+                <div class="metric-subtitle">Price-to-Earnings Ratio</div>
+            </div>
+            {% endif %}
+            
+            {% if financial_metrics.forward_pe %}
+            <div class="metric-card">
+                <div class="metric-header">Forward P/E</div>
+                <div class="metric-value">{{ financial_metrics.forward_pe }}</div>
+                <div class="metric-subtitle">Forward Earnings Estimate</div>
+            </div>
+            {% endif %}
+            
+            <!-- Dividend Metrics (only if pays dividend) -->
+            {% if financial_metrics.pays_dividend %}
+                {% if financial_metrics.dividend_yield %}
+                <div class="metric-card">
+                    <div class="metric-header">Dividend Yield</div>
+                    <div class="metric-value positive">{{ financial_metrics.dividend_yield }}%</div>
+                    <div class="metric-subtitle">Annual Dividend / Price</div>
+                </div>
+                {% endif %}
+                
+                {% if financial_metrics.payout_ratio %}
+                <div class="metric-card">
+                    <div class="metric-header">Payout Ratio</div>
+                    <div class="metric-value">{{ financial_metrics.payout_ratio }}%</div>
+                    <div class="metric-subtitle">% of Earnings as Dividends</div>
+                </div>
+                {% endif %}
+                
+                {% if financial_metrics.dividend_growth_1y %}
+                <div class="metric-card">
+                    <div class="metric-header">1-Year Dividend Growth</div>
+                    <div class="metric-value {% if financial_metrics.dividend_growth_1y > 0 %}positive{% else %}negative{% endif %}">
+                        {{ financial_metrics.dividend_growth_1y }}%
+                    </div>
+                    <div class="metric-subtitle">Year-over-Year Growth</div>
+                </div>
+                {% endif %}
+                
+                {% if financial_metrics.dividend_growth_5y %}
+                <div class="metric-card">
+                    <div class="metric-header">5-Year Dividend Growth</div>
+                    <div class="metric-value {% if financial_metrics.dividend_growth_5y > 0 %}positive{% else %}negative{% endif %}">
+                        {{ financial_metrics.dividend_growth_5y }}%
+                    </div>
+                    <div class="metric-subtitle">5-Year CAGR</div>
+                </div>
+                {% endif %}
+                
+                {% if financial_metrics.chowder_number %}
+                <div class="metric-card">
+                    <div class="metric-header">Chowder Number</div>
+                    <div class="metric-value {% if financial_metrics.chowder_number >= 12 %}positive{% endif %}">
+                        {{ financial_metrics.chowder_number }}
+                    </div>
+                    <div class="metric-subtitle">Yield + 5Y Growth</div>
+                </div>
+                {% endif %}
+            {% endif %}
+        </div>
+        
+        <div style="margin-top: 20px; padding: 16px; background: var(--gray-50); border-radius: 8px; font-size: 0.875rem; color: var(--gray-600);">
+            <i class="bi bi-info-circle"></i>
+            <strong>Last Updated:</strong> {{ financial_metrics.last_updated|date:"F d, Y H:i" }} UTC
+        </div>
+    </div>
+    {% endif %}
+    
     <!-- Price Chart -->
     <div class="content-section">
         <h2 class="section-title">
@@ -233,25 +380,15 @@
         </div>
     </div>
     
-    <!-- Volume Chart -->
-    <div class="content-section">
-        <h2 class="section-title">
-            <i class="bi bi-bar-chart"></i>
-            Trading Volume
-        </h2>
-        <div class="chart-container" style="height: 250px;">
-            <canvas id="volumeChart"></canvas>
-        </div>
-    </div>
-    
-    <!-- Dividends -->
+    <!-- Dividends (Collapsible) -->
     {% if has_dividends %}
     <div class="content-section">
-        <h2 class="section-title">
+        <h2 class="section-title" style="cursor: pointer; user-select: none;" onclick="toggleSection('dividendSection')">
             <i class="bi bi-cash-coin"></i>
             Dividend History
+            <i class="bi bi-chevron-down" id="dividendChevron" style="margin-left: auto; transition: transform 0.3s;"></i>
         </h2>
-        <div style="overflow-x: auto;">
+        <div id="dividendSection" style="display: none; overflow-x: auto;">
             <table class="dividend-table">
                 <thead>
                     <tr>
@@ -261,21 +398,22 @@
                     </tr>
                 </thead>
                 <tbody id="dividendTableBody">
-                    <tr><td colspan="3" style="text-align: center;">Loading...</td></tr>
+                    <tr><td colspan="3" style="text-align: center;">Click to load dividend history...</td></tr>
                 </tbody>
             </table>
         </div>
     </div>
     {% endif %}
     
-    <!-- Splits -->
+    <!-- Splits (Collapsible) -->
     {% if has_splits %}
     <div class="content-section">
-        <h2 class="section-title">
+        <h2 class="section-title" style="cursor: pointer; user-select: none;" onclick="toggleSection('splitsSection')">
             <i class="bi bi-scissors"></i>
             Stock Splits
+            <i class="bi bi-chevron-down" id="splitsChevron" style="margin-left: auto; transition: transform 0.3s;"></i>
         </h2>
-        <div style="overflow-x: auto;">
+        <div id="splitsSection" style="display: none; overflow-x: auto;">
             <table class="split-table">
                 <thead>
                     <tr>
@@ -298,8 +436,33 @@
 const symbol = '{{ stock.symbol }}';
 const stockCurrency = '{{ stock.currency|default:"USD" }}';
 let priceChart = null;
-let volumeChart = null;
 let currentDays = 30;
+let dividendsLoaded = false;
+let splitsLoaded = false;
+
+// Toggle collapsible sections
+function toggleSection(sectionId) {
+    const section = document.getElementById(sectionId);
+    const chevronId = sectionId === 'dividendSection' ? 'dividendChevron' : 'splitsChevron';
+    const chevron = document.getElementById(chevronId);
+    
+    if (section.style.display === 'none') {
+        section.style.display = 'block';
+        chevron.style.transform = 'rotate(180deg)';
+        
+        // Load data on first open
+        if (sectionId === 'dividendSection' && !dividendsLoaded) {
+            loadDividends();
+            dividendsLoaded = true;
+        } else if (sectionId === 'splitsSection' && !splitsLoaded) {
+            loadSplits();
+            splitsLoaded = true;
+        }
+    } else {
+        section.style.display = 'none';
+        chevron.style.transform = 'rotate(0deg)';
+    }
+}
 
 // Load price data and create chart
 async function loadPriceData(days) {
@@ -310,13 +473,12 @@ async function loadPriceData(days) {
     event.target.classList.add('active');
     
     try {
-        const url = days === 'max' ? `/research/stocks/${symbol}/prices/?all=true` : `/research/stocks/${symbol}/prices/?days=${days}`;
+        const url = days === 'max' ? `/research/api/stocks/${symbol}/prices/?all=true` : `/research/api/stocks/${symbol}/prices/?days=${days}`;
         const response = await fetch(url);
         const data = await response.json();
         
         if (data.prices && data.prices.length > 0) {
             updatePriceChart(data.prices);
-            updateVolumeChart(data.prices);
         }
     } catch (error) {
         console.error('Error loading price data:', error);
@@ -391,68 +553,13 @@ function updatePriceChart(prices) {
     });
 }
 
-function updateVolumeChart(prices) {
-    const ctx = document.getElementById('volumeChart').getContext('2d');
-    
-    const dates = prices.map(p => p.date);
-    const volumes = prices.map(p => parseInt(p.volume));
-    
-    if (volumeChart) {
-        volumeChart.destroy();
-    }
-    
-    volumeChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: dates,
-            datasets: [{
-                label: 'Volume',
-                data: volumes,
-                backgroundColor: 'rgba(139, 92, 246, 0.6)',
-                borderColor: 'rgb(139, 92, 246)',
-                borderWidth: 1,
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    display: false
-                },
-                tooltip: {
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    padding: 12,
-                    callbacks: {
-                        label: function(context) {
-                            return context.parsed.y.toLocaleString() + ' shares';
-                        }
-                    }
-                }
-            },
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        callback: function(value) {
-                            return (value / 1000000).toFixed(1) + 'M';
-                        }
-                    }
-                },
-                x: {
-                    ticks: {
-                        maxTicksLimit: 8
-                    }
-                }
-            }
-        }
-    });
-}
-
 // Load dividends
 async function loadDividends() {
+    const tbody = document.getElementById('dividendTableBody');
+    tbody.innerHTML = '<tr><td colspan="3" style="text-align: center;"><i class="bi bi-hourglass-split"></i> Loading...</td></tr>';
+    
     try {
-        const response = await fetch(`/research/stocks/${symbol}/dividends/`);
+        const response = await fetch(`/research/api/stocks/${symbol}/dividends/`);
         const data = await response.json();
         
         const tbody = document.getElementById('dividendTableBody');
@@ -474,11 +581,13 @@ async function loadDividends() {
 
 // Load splits
 async function loadSplits() {
+    const tbody = document.getElementById('splitTableBody');
+    tbody.innerHTML = '<tr><td colspan="3" style="text-align: center;"><i class="bi bi-hourglass-split"></i> Loading...</td></tr>';
+    
     try {
-        const response = await fetch(`/research/stocks/${symbol}/splits/`);
+        const response = await fetch(`/research/api/stocks/${symbol}/splits/`);
         const data = await response.json();
         
-        const tbody = document.getElementById('splitTableBody');
         if (data.splits && data.splits.length > 0) {
             tbody.innerHTML = data.splits.map(s => `
                 <tr>
@@ -495,57 +604,9 @@ async function loadSplits() {
     }
 }
 
-// Refresh all data
-async function refreshData() {
-    const btn = event.target.closest('.refresh-btn');
-    btn.disabled = true;
-    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Updating...';
-    
-    try {
-        // Always refresh with all available historical data
-        const response = await fetch('/research/fetch/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken')
-            },
-            body: JSON.stringify({ symbol: symbol, period: 'max' })
-        });
-        
-        if (response.ok) {
-            location.reload();
-        } else {
-            alert('Failed to update data. Please try again.');
-            btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Refresh Data';
-        }
-    } catch (error) {
-        alert('Error: ' + error.message);
-        btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Refresh Data';
-    }
-}
-
-function getCookie(name) {
-    let cookieValue = null;
-    if (document.cookie && document.cookie !== '') {
-        const cookies = document.cookie.split(';');
-        for (let i = 0; i < cookies.length; i++) {
-            const cookie = cookies[i].trim();
-            if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                break;
-            }
-        }
-    }
-    return cookieValue;
-}
-
 // Initialize on page load
 window.addEventListener('load', function() {
     loadPriceData(30);
-    {% if has_dividends %}loadDividends();{% endif %}
-    {% if has_splits %}loadSplits();{% endif %}
 });
 </script>
 {% endblock %}

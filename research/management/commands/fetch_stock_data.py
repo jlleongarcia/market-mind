@@ -50,11 +50,13 @@ class Command(BaseCommand):
                 
                 if result['success']:
                     total_success += 1
+                    metrics_status = "✓" if result['financial_metrics_saved'] else "✗"
                     self.stdout.write(self.style.SUCCESS(
                         f"✓ {symbol}: "
                         f"{result['prices_created']} prices, "
                         f"{result['dividends_saved']} dividends, "
-                        f"{result['splits_saved']} splits"
+                        f"{result['splits_saved']} splits, "
+                        f"metrics: {metrics_status}"
                     ))
                 else:
                     total_failed += 1

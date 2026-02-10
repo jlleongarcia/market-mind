@@ -14,21 +14,13 @@ urlpatterns = [
     path('account/', views.account_panel, name='account_panel'),
     path('account/settings/', views.account_settings, name='account_settings'),
     path('account/password/', views.change_password, name='change_password'),
-]
-
-# API Endpoints (keep separate for clarity)
-api_urlpatterns = [
-    # Stock listing and search
-    path('stocks/', views.StockListView.as_view(), name='stock-list'),
-    path('stocks/<str:symbol>/', views.StockDetailView.as_view(), name='stock-detail'),
     
-    # Historical data endpoints
-    path('stocks/<str:symbol>/prices/', views.StockPriceHistoryView.as_view(), name='stock-prices'),
-    path('stocks/<str:symbol>/dividends/', views.StockDividendsView.as_view(), name='stock-dividends'),
-    path('stocks/<str:symbol>/splits/', views.StockSplitsView.as_view(), name='stock-splits'),
-    
-    # Admin/management endpoints
-    path('fetch/', views.FetchStockDataView.as_view(), name='fetch-stock-data'),
+    # API Endpoints (with 'api/' prefix to avoid conflicts)
+    path('api/stocks/', views.StockListView.as_view(), name='stock-list'),
+    path('api/stocks/<str:symbol>/', views.StockDetailView.as_view(), name='stock-detail'),
+    path('api/stocks/<str:symbol>/metrics/', views.StockFinancialMetricsView.as_view(), name='stock-metrics'),
+    path('api/stocks/<str:symbol>/prices/', views.StockPriceHistoryView.as_view(), name='stock-prices'),
+    path('api/stocks/<str:symbol>/dividends/', views.StockDividendsView.as_view(), name='stock-dividends'),
+    path('api/stocks/<str:symbol>/splits/', views.StockSplitsView.as_view(), name='stock-splits'),
+    path('api/fetch/', views.FetchStockDataView.as_view(), name='fetch-stock-data'),
 ]
-
-urlpatterns += api_urlpatterns

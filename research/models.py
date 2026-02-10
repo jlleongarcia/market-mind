@@ -100,6 +100,101 @@ class StockSplit(models.Model):
         return f"{self.stock.symbol} - {self.date}: {self.ratio}"
 
 
+class FinancialMetrics(models.Model):
+    """Financial metrics and ratios for stocks"""
+    stock = models.OneToOneField(Stock, on_delete=models.CASCADE, related_name='financial_metrics', primary_key=True)
+    
+    # P/E Ratios (from yfinance)
+    trailing_pe = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        null=True, 
+        blank=True,
+        help_text="Trailing 12-month Price-to-Earnings ratio"
+    )
+    forward_pe = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        null=True, 
+        blank=True,
+        help_text="Forward Price-to-Earnings ratio"
+    )
+    
+    # Dividend metrics (from yfinance)
+    payout_ratio = models.DecimalField(
+        max_digits=5, 
+        decimal_places=2, 
+        null=True, 
+        blank=True,
+        help_text="Dividend payout ratio as percentage (0-100)"
+    )
+    dividend_yield = models.DecimalField(
+        max_digits=5, 
+        decimal_places=2, 
+        null=True, 
+        blank=True,
+        help_text="Current dividend yield as percentage"
+    )
+    
+    # Computed dividend growth (from historical data)
+    dividend_growth_1y = models.DecimalField(
+        max_digits=8, 
+        decimal_places=2, 
+        null=True, 
+        blank=True,
+        help_text="1-year dividend growth rate as percentage"
+    )
+    dividend_growth_5y = models.DecimalField(
+        max_digits=8, 
+        decimal_places=2, 
+        null=True, 
+        blank=True,
+        help_text="5-year dividend growth CAGR as percentage"
+    )
+    
+    # Chowder Number (computed)
+    chowder_number = models.DecimalField(
+        max_digits=8, 
+        decimal_places=2, 
+        null=True, 
+        blank=True,
+        help_text="Chowder Number: Dividend Yield + 5Y Dividend Growth"
+    )
+    
+    # Additional useful metrics
+    pays_dividend = models.BooleanField(
+        default=False,
+        help_text="Whether the stock pays dividends"
+    )
+    
+    # Metadata
+    last_updated = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        verbose_name = "Financial Metrics"
+        verbose_name_plural = "Financial Metrics"
+        indexes = [
+            models.Index(fields=['pays_dividend']),
+            models.Index(fields=['last_updated']),
+        ]
+        
+    def __str__(self):
+        return f"{self.stock.symbol} - Financial Metrics"
+    
+    @property
+    def has_complete_dividend_data(self):
+        """Check if all dividend metrics are available"""
+        if not self.pays_dividend:
+            return False
+        return all([
+            self.dividend_yield is not None,
+            self.dividend_growth_1y is not None,
+            self.dividend_growth_5y is not None,
+            self.chowder_number is not None
+        ])
+
+
 class Watchlist(models.Model):
     """User's stock watchlist"""
     user = models.ForeignKey('auth.User', on_delete=models.CASCADE, related_name='watchlists')

@@ -18,10 +18,10 @@ from django.urls import reverse
 from datetime import datetime, timedelta
 import logging
 
-from .models import Stock, HistoricalPrice, Dividend, StockSplit, UserRegistrationRequest
+from .models import Stock, HistoricalPrice, Dividend, StockSplit, UserRegistrationRequest, FinancialMetrics
 from .serializers import (
     StockSerializer, StockDetailSerializer, 
-    HistoricalPriceSerializer, DividendSerializer, StockSplitSerializer
+    HistoricalPriceSerializer, DividendSerializer, StockSplitSerializer, FinancialMetricsSerializer
 )
 from .services import StockDataFetcher
 from .forms import UserRegistrationForm, AccountSettingsForm, PasswordChangeForm
@@ -433,6 +433,78 @@ class StockSplitsView(APIView):
             return Response(data, status=status.HTTP_201_CREATED)
 
 
+class StockFinancialMetricsView(APIView):
+    """
+    Get financial metrics for a specific stock
+    Includes P/E ratios, dividend metrics, growth rates, and Chowder Number
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request, symbol):
+        symbol = symbol.upper()
+        
+        # Try cache first
+        cache_key = f'stock_metrics_{symbol}'
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            logger.info(f"Cache hit for {symbol} financial metrics")
+            return Response(cached_data)
+        
+        try:
+            # Get financial metrics
+            metrics = FinancialMetrics.objects.select_related('stock').get(stock__symbol=symbol)
+            
+            serializer = FinancialMetricsSerializer(metrics)
+            data = serializer.data
+            
+            # Add additional context
+            data['stock_name'] = metrics.stock.name
+            data['sector'] = metrics.stock.sector
+            data['industry'] = metrics.stock.industry
+            
+            # Cache for 1 hour (metrics don't change as frequently)
+            cache.set(cache_key, data, 3600)
+            
+            return Response(data)
+        
+        except FinancialMetrics.DoesNotExist:
+            # Try to fetch the stock data if it doesn't exist
+            try:
+                stock = Stock.objects.get(symbol=symbol)
+                
+                # Fetch financial metrics
+                fetcher = StockDataFetcher()
+                success = fetcher.save_financial_metrics(symbol)
+                
+                if success:
+                    metrics = FinancialMetrics.objects.select_related('stock').get(stock__symbol=symbol)
+                    serializer = FinancialMetricsSerializer(metrics)
+                    data = serializer.data
+                    data['stock_name'] = metrics.stock.name
+                    data['sector'] = metrics.stock.sector
+                    data['industry'] = metrics.stock.industry
+                    
+                    # Cache for 1 hour
+                    cache.set(cache_key, data, 3600)
+                    
+                    return Response(data, status=status.HTTP_201_CREATED)
+                else:
+                    return Response(
+                        {'error': f'Could not fetch financial metrics for {symbol}'},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+            
+            except Stock.DoesNotExist:
+                # Stock not in database at all
+                return Response(
+                    {
+                        'error': f'Stock {symbol} not found',
+                        'message': 'Use the fetch endpoint to add this stock first'
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+
 class FetchStockDataView(APIView):
     """
     Admin endpoint to manually trigger data fetch for a stock
@@ -544,6 +616,13 @@ class StockDetailPageView(LoginRequiredMixin, TemplateView):
             has_dividends = Dividend.objects.filter(stock=stock).exists()
             has_splits = StockSplit.objects.filter(stock=stock).exists()
             
+            # Get financial metrics
+            try:
+                financial_metrics = FinancialMetrics.objects.get(stock=stock)
+                context['financial_metrics'] = financial_metrics
+            except FinancialMetrics.DoesNotExist:
+                context['financial_metrics'] = None
+            
             context['stock'] = stock
             context['has_prices'] = has_prices
             context['has_dividends'] = has_dividends
@@ -562,6 +641,13 @@ class StockDetailPageView(LoginRequiredMixin, TemplateView):
                 context['has_dividends'] = result['dividends_saved'] > 0
                 context['has_splits'] = result['splits_saved'] > 0
                 context['just_fetched'] = True
+                
+                # Try to get financial metrics
+                try:
+                    financial_metrics = FinancialMetrics.objects.get(stock=stock)
+                    context['financial_metrics'] = financial_metrics
+                except FinancialMetrics.DoesNotExist:
+                    context['financial_metrics'] = None
             else:
                 # Handle stock not found
                 from django.http import Http404

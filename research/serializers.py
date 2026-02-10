@@ -2,7 +2,7 @@
 DRF Serializers for Research API
 """
 from rest_framework import serializers
-from .models import Stock, HistoricalPrice, Dividend, StockSplit, Watchlist, WatchlistItem
+from .models import Stock, HistoricalPrice, Dividend, StockSplit, Watchlist, WatchlistItem, FinancialMetrics
 
 
 class StockSerializer(serializers.ModelSerializer):
@@ -55,6 +55,28 @@ class StockSplitSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at']
 
 
+class FinancialMetricsSerializer(serializers.ModelSerializer):
+    """Serializer for FinancialMetrics model"""
+    symbol = serializers.CharField(source='stock.symbol', read_only=True)
+    
+    class Meta:
+        model = FinancialMetrics
+        fields = [
+            'symbol',
+            'trailing_pe',
+            'forward_pe',
+            'payout_ratio',
+            'dividend_yield',
+            'dividend_growth_1y',
+            'dividend_growth_5y',
+            'chowder_number',
+            'pays_dividend',
+            'last_updated',
+            'created_at'
+        ]
+        read_only_fields = ['last_updated', 'created_at']
+
+
 class StockDetailSerializer(serializers.ModelSerializer):
     """Detailed stock serializer with related data counts"""
     price_count = serializers.IntegerField(
@@ -70,6 +92,7 @@ class StockDetailSerializer(serializers.ModelSerializer):
         read_only=True
     )
     latest_price = serializers.SerializerMethodField()
+    financial_metrics = serializers.SerializerMethodField()
     
     class Meta:
         model = Stock
@@ -78,7 +101,7 @@ class StockDetailSerializer(serializers.ModelSerializer):
             'exchange', 'currency', 'country',
             'last_updated', 'created_at', 'is_active',
             'price_count', 'dividend_count', 'split_count',
-            'latest_price'
+            'latest_price', 'financial_metrics'
         ]
     
     def get_latest_price(self, obj):
@@ -90,6 +113,15 @@ class StockDetailSerializer(serializers.ModelSerializer):
                 'close': str(latest.close),
                 'volume': latest.volume
             }
+        return None
+    
+    def get_financial_metrics(self, obj):
+        """Get financial metrics for the stock"""
+        try:
+            if hasattr(obj, 'financial_metrics'):
+                return FinancialMetricsSerializer(obj.financial_metrics).data
+        except FinancialMetrics.DoesNotExist:
+            pass
         return None
 
 

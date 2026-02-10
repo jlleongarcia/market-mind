@@ -10,7 +10,7 @@ from django.utils import timezone
 from django.db import transaction
 import logging
 
-from .models import Stock, HistoricalPrice, Dividend, StockSplit
+from .models import Stock, HistoricalPrice, Dividend, StockSplit, FinancialMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -353,6 +353,206 @@ class StockDataFetcher:
         logger.info(f"Saved {created_count} split records for {symbol}")
         return created_count
     
+    def calculate_dividend_growth(self, symbol: str) -> Dict[str, Optional[Decimal]]:
+        """
+        Calculate 1-year and 5-year dividend growth rates
+        
+        Args:
+            symbol: Stock ticker symbol
+            
+        Returns:
+            Dictionary with growth_1y and growth_5y (as percentages)
+        """
+        result = {
+            'growth_1y': None,
+            'growth_5y': None
+        }
+        
+        try:
+            # Get stock instance
+            stock = Stock.objects.filter(symbol=symbol.upper()).first()
+            if not stock:
+                return result
+            
+            # Get all dividends ordered by date
+            dividends = Dividend.objects.filter(stock=stock).order_by('date')
+            
+            if dividends.count() < 2:
+                logger.info(f"Insufficient dividend data for {symbol}")
+                return result
+            
+            # Convert to DataFrame for easier calculation
+            df = pd.DataFrame(list(dividends.values('date', 'amount')))
+            df['date'] = pd.to_datetime(df['date'])
+            df = df.set_index('date').sort_index()
+            
+            now = datetime.now()
+            
+            # Calculate 1-year growth
+            try:
+                one_year_ago = now - timedelta(days=365)
+                two_years_ago = now - timedelta(days=730)
+                
+                # Sum dividends for last 12 months
+                recent_divs = df[df.index >= pd.Timestamp(one_year_ago)]['amount'].sum()
+                # Sum dividends for previous 12 months
+                previous_divs = df[(df.index >= pd.Timestamp(two_years_ago)) & 
+                                   (df.index < pd.Timestamp(one_year_ago))]['amount'].sum()
+                
+                if previous_divs > 0 and recent_divs > 0:
+                    growth_1y = ((float(recent_divs) / float(previous_divs)) - 1) * 100
+                    result['growth_1y'] = Decimal(str(round(growth_1y, 2)))
+                    logger.info(f"1Y dividend growth for {symbol}: {result['growth_1y']}%")
+            except Exception as e:
+                logger.warning(f"Could not calculate 1Y growth for {symbol}: {str(e)}")
+            
+            # Calculate 5-year CAGR
+            try:
+                five_years_ago = now - timedelta(days=365*5)
+                six_years_ago = now - timedelta(days=365*6)
+                
+                # Get most recent year's dividends
+                recent_year_divs = df[df.index >= pd.Timestamp(one_year_ago)]['amount'].sum()
+                # Get dividends from 5 years ago
+                old_year_divs = df[(df.index >= pd.Timestamp(six_years_ago)) & 
+                                   (df.index < pd.Timestamp(five_years_ago))]['amount'].sum()
+                
+                if old_year_divs > 0 and recent_year_divs > 0:
+                    # CAGR formula: ((End/Start)^(1/years) - 1) * 100
+                    cagr = ((float(recent_year_divs) / float(old_year_divs)) ** (1/5) - 1) * 100
+                    result['growth_5y'] = Decimal(str(round(cagr, 2)))
+                    logger.info(f"5Y dividend growth for {symbol}: {result['growth_5y']}%")
+            except Exception as e:
+                logger.warning(f"Could not calculate 5Y growth for {symbol}: {str(e)}")
+            
+        except Exception as e:
+            logger.error(f"Error calculating dividend growth for {symbol}: {str(e)}")
+        
+        return result
+    
+    def fetch_financial_metrics(self, symbol: str) -> Optional[Dict]:
+        """
+        Fetch financial metrics from yfinance
+        
+        Args:
+            symbol: Stock ticker symbol
+            
+        Returns:
+            Dictionary with financial metrics or None if failed
+        """
+        try:
+            ticker = yf.Ticker(symbol.upper())
+            info = ticker.info
+            
+            if not info:
+                logger.warning(f"No info available for {symbol}")
+                return None
+            
+            # Extract metrics with smart conversion to percentages
+            metrics = {}
+            
+            # P/E ratios - already in correct format
+            metrics['trailing_pe'] = info.get('trailingPE')
+            metrics['forward_pe'] = info.get('forwardPE')
+            
+            # Payout ratio - yfinance returns as decimal (0.6672 = 66.72%)
+            payout = info.get('payoutRatio')
+            if payout is not None:
+                # If value is between 0 and 1, it's a decimal that needs conversion
+                metrics['payout_ratio'] = payout * 100 if 0 < payout <= 1 else payout
+            else:
+                metrics['payout_ratio'] = None
+            
+            # Dividend yield - yfinance returns as decimal (0.0262 = 2.62%)
+            div_yield = info.get('dividendYield')
+            if div_yield is not None:
+                # If value is between 0 and 1, it's a decimal that needs conversion
+                metrics['dividend_yield'] = div_yield * 100 if 0 < div_yield <= 1 else div_yield
+            else:
+                metrics['dividend_yield'] = None
+            
+            # Convert to Decimal for database storage
+            for key, value in metrics.items():
+                if value is not None:
+                    try:
+                        metrics[key] = Decimal(str(round(value, 2)))
+                    except:
+                        metrics[key] = None
+            
+            # Check if stock pays dividends
+            pays_dividend = bool(info.get('dividendYield') or info.get('dividendRate'))
+            metrics['pays_dividend'] = pays_dividend
+            
+            logger.info(f"Fetched financial metrics for {symbol} - Pays dividend: {pays_dividend}")
+            return metrics
+            
+        except Exception as e:
+            logger.error(f"Error fetching financial metrics for {symbol}: {str(e)}")
+            return None
+    
+    @transaction.atomic
+    def save_financial_metrics(self, symbol: str) -> bool:
+        """
+        Fetch and save financial metrics to database
+        
+        Args:
+            symbol: Stock ticker symbol
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Ensure stock exists
+            stock = Stock.objects.filter(symbol=symbol.upper()).first()
+            if not stock:
+                stock = self.save_stock_info(symbol)
+                if not stock:
+                    logger.error(f"Failed to create stock record for {symbol}")
+                    return False
+            
+            # Fetch metrics from yfinance
+            metrics = self.fetch_financial_metrics(symbol)
+            if not metrics:
+                logger.warning(f"No financial metrics available for {symbol}")
+                return False
+            
+            pays_dividend = metrics.pop('pays_dividend', False)
+            
+            # Calculate dividend growth if stock pays dividends
+            if pays_dividend:
+                growth_data = self.calculate_dividend_growth(symbol)
+                metrics['dividend_growth_1y'] = growth_data['growth_1y']
+                metrics['dividend_growth_5y'] = growth_data['growth_5y']
+                
+                # Calculate Chowder Number: Dividend Yield + 5Y Growth
+                if metrics.get('dividend_yield') and metrics.get('dividend_growth_5y'):
+                    chowder = metrics['dividend_yield'] + metrics['dividend_growth_5y']
+                    metrics['chowder_number'] = Decimal(str(round(float(chowder), 2)))
+                else:
+                    metrics['chowder_number'] = None
+            else:
+                # Non-dividend stock - set all dividend metrics to None
+                metrics['dividend_growth_1y'] = None
+                metrics['dividend_growth_5y'] = None
+                metrics['chowder_number'] = None
+            
+            metrics['pays_dividend'] = pays_dividend
+            
+            # Save to database
+            financial_metrics, created = FinancialMetrics.objects.update_or_create(
+                stock=stock,
+                defaults=metrics
+            )
+            
+            action = "Created" if created else "Updated"
+            logger.info(f"{action} financial metrics for {symbol}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error saving financial metrics for {symbol}: {str(e)}")
+            return False
+    
     def fetch_and_save_all(self, symbol: str, period: str = "1y") -> Dict:
         """
         Fetch and save all data for a stock symbol
@@ -372,6 +572,7 @@ class StockDataFetcher:
             'prices_updated': 0,
             'dividends_saved': 0,
             'splits_saved': 0,
+            'financial_metrics_saved': False,
             'errors': []
         }
         
@@ -394,6 +595,12 @@ class StockDataFetcher:
             
             # Save splits
             results['splits_saved'] = self.save_splits(symbol)
+            
+            # Save financial metrics
+            if self.save_financial_metrics(symbol):
+                results['financial_metrics_saved'] = True
+            else:
+                results['errors'].append('Failed to fetch financial metrics')
             
             results['success'] = True
             
