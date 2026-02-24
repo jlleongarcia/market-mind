@@ -128,6 +128,13 @@ class FinancialMetrics(models.Model):
         blank=True,
         help_text="Dividend payout ratio as percentage (0-100)"
     )
+    fcf_payout_ratio = models.DecimalField(
+        max_digits=5, 
+        decimal_places=2, 
+        null=True, 
+        blank=True,
+        help_text="FCF payout ratio: Dividends / Free Cash Flow as percentage"
+    )
     dividend_yield = models.DecimalField(
         max_digits=5, 
         decimal_places=2, 
@@ -193,6 +200,11 @@ class FinancialMetrics(models.Model):
             self.dividend_growth_5y is not None,
             self.chowder_number is not None
         ])
+    
+    @property
+    def has_cash_flow_data(self):
+        """Check if cash flow metrics are available"""
+        return self.fcf_payout_ratio is not None
 
 
 class Watchlist(models.Model):

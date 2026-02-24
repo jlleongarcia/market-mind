@@ -318,6 +318,14 @@
                 </div>
                 {% endif %}
                 
+                {% if financial_metrics.fcf_payout_ratio %}
+                <div class="metric-card">
+                    <div class="metric-header">FCF Payout Ratio</div>
+                    <div class="metric-value {% if financial_metrics.fcf_payout_ratio > 100 %}negative{% endif %}">{{ financial_metrics.fcf_payout_ratio }}%</div>
+                    <div class="metric-subtitle">% of Free Cash Flow as Dividends</div>
+                </div>
+                {% endif %}
+                
                 {% if financial_metrics.dividend_growth_1y %}
                 <div class="metric-card">
                     <div class="metric-header">1-Year Dividend Growth</div>

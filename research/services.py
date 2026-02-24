@@ -463,6 +463,24 @@ class StockDataFetcher:
             else:
                 metrics['payout_ratio'] = None
             
+            # FCF Payout Ratio - calculate from FCF and dividend data
+            fcf = info.get('freeCashflow')
+            metrics['fcf_payout_ratio'] = None
+            
+            if fcf and fcf > 0:
+                try:
+                    # Get dividend per share and shares outstanding to calculate total dividends
+                    dividend_rate = info.get('dividendRate')  # Annual dividend per share
+                    shares_outstanding = info.get('sharesOutstanding')
+                    
+                    if dividend_rate and shares_outstanding:
+                        total_dividends = dividend_rate * shares_outstanding
+                        fcf_payout = (total_dividends / fcf) * 100
+                        metrics['fcf_payout_ratio'] = min(fcf_payout, 999.99)  # Cap at 999.99%
+                        logger.info(f"FCF Payout Ratio for {symbol}: {metrics['fcf_payout_ratio']:.2f}%")
+                except Exception as e:
+                    logger.warning(f"Could not calculate FCF payout ratio for {symbol}: {str(e)}")
+            
             # Dividend yield - yfinance returns as decimal (0.0262 = 2.62%)
             div_yield = info.get('dividendYield')
             if div_yield is not None:

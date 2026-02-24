@@ -106,6 +106,7 @@ class PortfolioCalculationService:
             position_data['trailing_pe'] = float(metrics.trailing_pe) if metrics.trailing_pe else None
             position_data['forward_pe'] = float(metrics.forward_pe) if metrics.forward_pe else None
             position_data['payout_ratio'] = float(metrics.payout_ratio) if metrics.payout_ratio else None
+            position_data['fcf_payout_ratio'] = float(metrics.fcf_payout_ratio) if metrics.fcf_payout_ratio else None
             position_data['dividend_growth_1y'] = float(metrics.dividend_growth_1y) if metrics.dividend_growth_1y else None
             position_data['dividend_growth_5y'] = float(metrics.dividend_growth_5y) if metrics.dividend_growth_5y else None
             position_data['chowder_number'] = float(metrics.chowder_number) if metrics.chowder_number else None

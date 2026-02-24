@@ -66,6 +66,7 @@ class FinancialMetricsSerializer(serializers.ModelSerializer):
             'trailing_pe',
             'forward_pe',
             'payout_ratio',
+            'fcf_payout_ratio',
             'dividend_yield',
             'dividend_growth_1y',
             'dividend_growth_5y',
