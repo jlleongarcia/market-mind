@@ -364,7 +364,7 @@ searchInput.addEventListener('input', function(e) {
 
 async function fetchSuggestions(query) {
     try {
-        const response = await fetch(`/research/stocks/?search=${encodeURIComponent(query)}`);
+        const response = await fetch(`/research/api/stocks/?search=${encodeURIComponent(query)}`);
         const data = await response.json();
         
         if (data.results && data.results.length > 0) {
@@ -431,7 +431,7 @@ document.getElementById('addStockForm').addEventListener('submit', async functio
     
     try {
         // Use max period automatically - no user choice needed
-        const response = await fetch('/research/fetch/', {
+        const response = await fetch('/research/api/fetch/', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
