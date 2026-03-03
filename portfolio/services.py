@@ -307,14 +307,21 @@ class PortfolioCalculationService:
             pass
         
         # Stock doesn't exist, try to fetch it
-        logger.info(f"Stock {symbol} not found in database, attempting auto-fetch...")
+        logger.info(f"Stock {symbol} not found in database, attempting auto-fetch with full data...")
         
         try:
             fetcher = StockDataFetcher()
-            stock = fetcher.save_stock_info(symbol)
+            # Fetch all data: stock info, historical prices, dividends, splits, financial metrics
+            result = fetcher.fetch_and_save_all(symbol, period='1y')
             
-            if stock:
-                logger.info(f"Successfully auto-fetched and saved stock: {symbol}")
+            if result['success'] and result['stock_saved']:
+                stock = Stock.objects.get(symbol=symbol)
+                logger.info(
+                    f"Successfully auto-fetched stock: {symbol} "
+                    f"({result['prices_created']} prices, "
+                    f"{result['dividends_saved']} dividends, "
+                    f"metrics: {'✓' if result['financial_metrics_saved'] else '✗'})"
+                )
                 
                 # Build message
                 if redirect_used:
@@ -333,7 +340,11 @@ class PortfolioCalculationService:
                 if redirect_used:
                     error_msg = f"Symbol {original_symbol} redirects to {symbol}, but {symbol} was not found."
                 
-                error_msg += " Please verify the symbol is correct."
+                if result.get('errors'):
+                    error_msg += f" Errors: {', '.join(result['errors'])}"
+                else:
+                    error_msg += " Please verify the symbol is correct."
+                    
                 logger.warning(f"Failed to fetch stock {symbol} - symbol not found")
                 return (False, error_msg, None)
                 
