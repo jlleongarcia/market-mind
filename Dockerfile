@@ -27,7 +27,7 @@ COPY . /app/
 RUN mkdir -p /app/staticfiles /app/media
 
 # Copy entrypoint script
-COPY entrypoint.sh /app/
+COPY scripts/entrypoint.sh /app/
 RUN chmod +x /app/entrypoint.sh
 
 # Set entrypoint

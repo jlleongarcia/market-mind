@@ -180,11 +180,23 @@ health:
 	@echo "Database connection test:"
 	@docker-compose exec -T web python manage.py check --database default
 
+# Register daily 8am cron job for DB backup (idempotent)
+setup-cron:
+	@SCRIPT="$$(pwd)/scripts/backup_db.sh"; \
+	LOG="$$(pwd)/backups/backup.log"; \
+	ENTRY="0 8 * * * $$SCRIPT >> $$LOG 2>&1"; \
+	if crontab -l 2>/dev/null | grep -qF "$$SCRIPT"; then \
+		echo "✅ Backup cron job already registered"; \
+	else \
+		(crontab -l 2>/dev/null; echo "# Py-Stocks - daily DB backup (8:00 AM)"; echo "$$ENTRY") | crontab -; \
+		echo "✅ Backup cron job registered (daily at 8:00 AM)"; \
+	fi
+
 # Backup database
 backup:
 	@echo "💾 Creating database backup..."
 	@mkdir -p backups
-	@docker-compose exec -T db pg_dump -U postgres marketmind_db > backups/db_backup_$$(date +%Y%m%d_%H%M%S).sql
+	@docker-compose exec -T db pg_dump -U $${DATABASE_USER:-marketmind_user} $${DATABASE_NAME:-marketmind_db} > backups/db_backup_$$(date +%Y%m%d_%H%M%S).sql
 	@echo "✅ Backup created in backups/ directory"
 
 # Restore database from backup

@@ -91,6 +91,10 @@ else
         echo "🔧 Setting up git hooks..."
         ./.githooks/setup-hooks.sh
         echo ""
+        echo "⏰ Setting up daily DB backup cron job..."
+        chmod +x ./scripts/backup_db.sh
+        make setup-cron
+        echo ""
     else
         echo ""
         echo "📋 To set up later, run:"

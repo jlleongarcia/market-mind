@@ -53,7 +53,9 @@ docker-compose up --build -d
 .
 ├── docker-compose.yml          # Docker orchestration
 ├── Dockerfile                  # Web app container
-├── entrypoint.sh              # Container startup script
+├── scripts/                   # Shell scripts
+│   ├── entrypoint.sh         # Container startup script
+│   └── backup_db.sh          # Daily DB backup (cron)
 ├── manage.py                  # Django management
 ├── requirements.txt           # Python dependencies
 ├── stonks_project/           # Django project settings
