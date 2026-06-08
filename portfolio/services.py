@@ -4,6 +4,7 @@ Handles complex portfolio analytics and calculations
 """
 from datetime import date, timedelta
 from decimal import Decimal
+from django.core.cache import cache
 from django.db.models import Max, Min, Sum, Q
 from research.models import FinancialMetrics, HistoricalPrice, Stock
 
@@ -42,29 +43,39 @@ class PortfolioCalculationService:
             }
         }
         
-        # Bulk 52W high/low query — single DB hit for all symbols
         symbols = [p.symbol for p in positions]
-        one_year_ago = date.today() - timedelta(days=365)
-        price_ranges = HistoricalPrice.objects.filter(
-            stock__symbol__in=symbols,
-            date__gte=one_year_ago,
-        ).values('stock__symbol').annotate(high_52w=Max('high'), low_52w=Min('low'))
-        price_range_map = {r['stock__symbol']: r for r in price_ranges}
+        today  = date.today().isoformat()
 
-        # Bulk latest market price — get most recent close per symbol (2 queries, no N+1)
-        market_price_map = {}
-        if symbols:
-            latest_date_rows = HistoricalPrice.objects.filter(
+        # 52W high/low — keyed by portfolio + date; refreshed once per day
+        range_cache_key = f"price_range_{portfolio.id}_{today}"
+        price_range_map = cache.get(range_cache_key)
+        if price_range_map is None:
+            one_year_ago = date.today() - timedelta(days=365)
+            price_ranges = HistoricalPrice.objects.filter(
                 stock__symbol__in=symbols,
-            ).values('stock__symbol').annotate(latest_date=Max('date'))
-            latest_date_map = {r['stock__symbol']: r['latest_date'] for r in latest_date_rows}
+                date__gte=one_year_ago,
+            ).values('stock__symbol').annotate(high_52w=Max('high'), low_52w=Min('low'))
+            price_range_map = {r['stock__symbol']: r for r in price_ranges}
+            cache.set(range_cache_key, price_range_map, timeout=8 * 3600)
 
-            price_filter = Q()
-            for sym, dt in latest_date_map.items():
-                price_filter |= Q(stock__symbol=sym, date=dt)
-            if latest_date_map:
-                for row in HistoricalPrice.objects.filter(price_filter).values('stock__symbol', 'close'):
-                    market_price_map[row['stock__symbol']] = float(row['close'])
+        # Latest close price — keyed by portfolio + date; TTL 4 h (end-of-day data, won't change intraday)
+        prices_cache_key = f"market_prices_{portfolio.id}_{today}"
+        market_price_map = cache.get(prices_cache_key)
+        if market_price_map is None:
+            market_price_map = {}
+            if symbols:
+                latest_date_rows = HistoricalPrice.objects.filter(
+                    stock__symbol__in=symbols,
+                ).values('stock__symbol').annotate(latest_date=Max('date'))
+                latest_date_map = {r['stock__symbol']: r['latest_date'] for r in latest_date_rows}
+
+                price_filter = Q()
+                for sym, dt in latest_date_map.items():
+                    price_filter |= Q(stock__symbol=sym, date=dt)
+                if latest_date_map:
+                    for row in HistoricalPrice.objects.filter(price_filter).values('stock__symbol', 'close'):
+                        market_price_map[row['stock__symbol']] = float(row['close'])
+            cache.set(prices_cache_key, market_price_map, timeout=4 * 3600)
 
         # Build positions with fresh prices
         weighted_yoc_sum = 0
