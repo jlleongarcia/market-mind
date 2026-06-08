@@ -52,12 +52,27 @@ class PortfolioCalculationService:
         ).values('stock__symbol').annotate(high_52w=Max('high'), low_52w=Min('low'))
         price_range_map = {r['stock__symbol']: r for r in price_ranges}
 
+        # Bulk latest market price — get most recent close per symbol (2 queries, no N+1)
+        market_price_map = {}
+        if symbols:
+            latest_date_rows = HistoricalPrice.objects.filter(
+                stock__symbol__in=symbols,
+            ).values('stock__symbol').annotate(latest_date=Max('date'))
+            latest_date_map = {r['stock__symbol']: r['latest_date'] for r in latest_date_rows}
+
+            price_filter = Q()
+            for sym, dt in latest_date_map.items():
+                price_filter |= Q(stock__symbol=sym, date=dt)
+            if latest_date_map:
+                for row in HistoricalPrice.objects.filter(price_filter).values('stock__symbol', 'close'):
+                    market_price_map[row['stock__symbol']] = float(row['close'])
+
         # Calculate average YoC and build position details
         total_cost = 0
         weighted_yoc_sum = 0
 
         for position in positions:
-            position_data = PortfolioCalculationService.get_position_detail(position, price_range_map)
+            position_data = PortfolioCalculationService.get_position_detail(position, price_range_map, market_price_map)
             summary['positions'].append(position_data)
             
             # Calculate weighted YoC
@@ -73,13 +88,14 @@ class PortfolioCalculationService:
         return summary
     
     @staticmethod
-    def get_position_detail(position, price_range_map=None):
+    def get_position_detail(position, price_range_map=None, market_price_map=None):
         """
         Get detailed information for a single position.
 
         Args:
             position: Position instance
             price_range_map: optional dict {symbol: {high_52w, low_52w}} pre-computed by caller
+            market_price_map: optional dict {symbol: latest_close} pre-computed by caller
         """
         metrics = position.get_current_metrics()
 
@@ -91,16 +107,25 @@ class PortfolioCalculationService:
 
         pr = (price_range_map or {}).get(position.symbol, {})
 
+        # Priority: latest HistoricalPrice close > stored current_price > average_cost
+        market_price = (market_price_map or {}).get(position.symbol)
+        display_price = market_price or (float(position.current_price) if position.current_price else float(position.average_cost))
+        qty = float(position.quantity)
+        total_cost = float(position.total_cost)
+        current_value = display_price * qty
+        gain_loss = current_value - total_cost
+        gain_loss_pct = (gain_loss / total_cost * 100) if total_cost > 0 else 0
+
         position_data = {
             'symbol': position.symbol,
             'company_name': company_name,
-            'quantity': float(position.quantity),
+            'quantity': qty,
             'average_cost': float(position.average_cost),
-            'current_price': float(position.current_price) if position.current_price else float(position.average_cost),
-            'total_invested': float(position.total_cost),
-            'current_value': float(position.current_value),
-            'gain_loss': float(position.profit_loss),
-            'gain_loss_percentage': float(position.profit_loss_percentage),
+            'current_price': display_price,
+            'total_invested': total_cost,
+            'current_value': current_value,
+            'gain_loss': gain_loss,
+            'gain_loss_percentage': gain_loss_pct,
             'buy_yield': position.average_buy_yield,
             'current_yield': None,
             'yield_on_cost': position.yield_on_cost,

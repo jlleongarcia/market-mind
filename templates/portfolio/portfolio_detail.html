@@ -39,16 +39,16 @@
     </div>
     <div class="stat-card">
         <div class="stat-label">Total Return</div>
-        <div class="stat-value {% if summary.summary.total_gain_loss >= 0 %}positive{% else %}negative{% endif %}">
+        <div class="stat-value">
             {% if summary.summary.total_gain_loss >= 0 %}+{% endif %}${{ summary.summary.total_gain_loss|floatformat:2 }}
         </div>
-        <div class="stat-sub {% if summary.summary.total_gain_loss_percentage >= 0 %}positive{% else %}negative{% endif %}">
+        <div class="stat-sub">
             {% if summary.summary.total_gain_loss_percentage >= 0 %}+{% endif %}{{ summary.summary.total_gain_loss_percentage|floatformat:2 }}%
         </div>
     </div>
     <div class="stat-card">
         <div class="stat-label">Annual Income</div>
-        <div class="stat-value positive">${{ summary.summary.annual_dividend_income|floatformat:2 }}</div>
+        <div class="stat-value">${{ summary.summary.annual_dividend_income|floatformat:2 }}</div>
         <div class="stat-sub">Wtd yield {{ summary.metrics.weighted_dividend_yield|floatformat:2 }}%</div>
     </div>
 </div>
@@ -106,9 +106,7 @@
                 <td class="text-right">${{ pos.current_price|floatformat:2 }}</td>
                 <td class="text-right font-bold">${{ pos.current_value|floatformat:2 }}</td>
                 <td class="text-right">
-                    <span class="return-pill {% if pos.gain_loss >= 0 %}positive{% else %}negative{% endif %}">
-                        {% if pos.gain_loss >= 0 %}+{% endif %}{{ pos.gain_loss_percentage|floatformat:2 }}%
-                    </span>
+                    {% if pos.gain_loss >= 0 %}+{% endif %}{{ pos.gain_loss_percentage|floatformat:2 }}%
                 </td>
             </tr>
             {% endfor %}
@@ -141,27 +139,21 @@
                 <td class="text-muted text-sm">{{ pos.company_name }}</td>
                 <td class="text-right">{{ pos.quantity|floatformat:4 }}</td>
                 <td class="text-right">
-                    {% if pos.current_yield %}<span class="positive">{{ pos.current_yield|floatformat:2 }}%</span>{% else %}<span class="text-muted">—</span>{% endif %}
+                    {% if pos.current_yield %}{{ pos.current_yield|floatformat:2 }}%{% else %}<span class="text-muted">—</span>{% endif %}
                 </td>
                 <td class="text-right font-bold">
-                    {% if pos.yield_on_cost %}<span class="positive">{{ pos.yield_on_cost|floatformat:2 }}%</span>{% else %}<span class="text-muted">—</span>{% endif %}
+                    {% if pos.yield_on_cost %}{{ pos.yield_on_cost|floatformat:2 }}%{% else %}<span class="text-muted">—</span>{% endif %}
                 </td>
                 <td class="text-right">
-                    {% if pos.annual_dividend_income %}<span class="positive">${{ pos.annual_dividend_income|floatformat:2 }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+                    {% if pos.annual_dividend_income %}${{ pos.annual_dividend_income|floatformat:2 }}{% else %}<span class="text-muted">—</span>{% endif %}
                 </td>
                 <td class="text-right">
                     {% if pos.dividend_growth_1y %}
-                        <span class="{% if pos.dividend_growth_1y >= 0 %}positive{% else %}negative{% endif %}">
-                            {% if pos.dividend_growth_1y >= 0 %}+{% endif %}{{ pos.dividend_growth_1y|floatformat:2 }}%
-                        </span>
+                        {% if pos.dividend_growth_1y >= 0 %}+{% endif %}{{ pos.dividend_growth_1y|floatformat:2 }}%
                     {% else %}<span class="text-muted">—</span>{% endif %}
                 </td>
                 <td class="text-right font-bold">
-                    {% if pos.chowder_number %}
-                        <span class="{% if pos.chowder_number >= 12 %}positive{% elif pos.chowder_number >= 8 %}text-muted{% else %}negative{% endif %}">
-                            {{ pos.chowder_number|floatformat:2 }}
-                        </span>
-                    {% else %}<span class="text-muted">—</span>{% endif %}
+                    {% if pos.chowder_number %}{{ pos.chowder_number|floatformat:2 }}{% else %}<span class="text-muted">—</span>{% endif %}
                 </td>
             </tr>
             {% endfor %}
@@ -196,11 +188,7 @@
                     {% if pos.trailing_pe %}{{ pos.trailing_pe|floatformat:1 }}{% else %}<span class="text-muted">—</span>{% endif %}
                 </td>
                 <td class="text-right">
-                    {% if pos.payout_ratio %}
-                        <span class="{% if pos.payout_ratio > 80 %}negative{% elif pos.payout_ratio > 60 %}text-muted{% else %}positive{% endif %}">
-                            {{ pos.payout_ratio|floatformat:1 }}%
-                        </span>
-                    {% else %}<span class="text-muted">—</span>{% endif %}
+                    {% if pos.payout_ratio %}{{ pos.payout_ratio|floatformat:1 }}%{% else %}<span class="text-muted">—</span>{% endif %}
                 </td>
                 <td class="text-right">
                     {% if pos.beta %}{{ pos.beta|floatformat:2 }}{% else %}<span class="text-muted">—</span>{% endif %}
@@ -279,6 +267,7 @@
     <div class="table-wrap">
     <table class="data-table">
         <thead><tr>
+            <th></th>
             <th>Date</th>
             <th>Type</th>
             <th>Symbol</th>
@@ -286,11 +275,15 @@
             <th class="text-right">Quantity</th>
             <th class="text-right">Commission</th>
             <th class="text-right">Total</th>
-            <th class="text-right">Yield / P&amp;L</th>
         </tr></thead>
         <tbody>
         {% for entry in ledger %}
-        <tr class="ledger-row-{{ entry.type }}">
+        <tr class="ledger-row-{{ entry.type }}{% if entry.extra %} ledger-expandable{% endif %}"
+            data-extra="{{ entry.extra|default:'' }}"
+            data-extra-label="{% if entry.type == 'buy' %}Buy Yield{% elif entry.type == 'sell' %}P&amp;L{% elif entry.type == 'div' %}Per Share{% else %}Info{% endif %}">
+            <td class="ledger-expand-cell">
+                {% if entry.extra %}<span class="ledger-chevron">›</span>{% endif %}
+            </td>
             <td class="text-sm text-muted">{{ entry.date|date:"d/m/Y" }}</td>
             <td><span class="tx-badge {{ entry.type }}">{{ entry.label }}</span></td>
             <td class="font-bold">{{ entry.symbol }}</td>
@@ -301,21 +294,10 @@
                 {% if entry.quantity is not None %}{{ entry.quantity|floatformat:4 }}{% else %}<span class="text-muted">—</span>{% endif %}
             </td>
             <td class="text-right text-sm">
-                {% if entry.commission %}
-                    <span class="negative">${{ entry.commission|floatformat:2 }}</span>
-                {% else %}<span class="text-muted">—</span>{% endif %}
+                {% if entry.commission %}${{ entry.commission|floatformat:2 }}{% else %}<span class="text-muted">—</span>{% endif %}
             </td>
             <td class="text-right font-bold">
-                {% if entry.type == 'buy' or entry.type == 'spof' %}
-                    <span class="negative">${{ entry.total|floatformat:2 }}</span>
-                {% else %}
-                    <span class="positive">${{ entry.total|floatformat:2 }}</span>
-                {% endif %}
-            </td>
-            <td class="text-right font-bold">
-                {% if entry.extra %}
-                    <span class="{{ entry.extra_class }}">{{ entry.extra }}</span>
-                {% else %}<span class="text-muted">—</span>{% endif %}
+                ${{ entry.total|floatformat:2 }}
             </td>
         </tr>
         {% endfor %}
@@ -339,6 +321,34 @@
             document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
             btn.classList.add('active');
             document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+        });
+    });
+
+    // ── Ledger row expand ─────────────────────────────────────────
+    document.querySelectorAll('.ledger-expandable').forEach(row => {
+        row.addEventListener('click', () => {
+            const next = row.nextElementSibling;
+            const isOpen = next && next.classList.contains('ledger-detail-row');
+
+            // Close any open detail rows
+            document.querySelectorAll('.ledger-detail-row').forEach(r => r.remove());
+            document.querySelectorAll('.ledger-expandable').forEach(r => {
+                r.classList.remove('ledger-row-expanded');
+                const chevron = r.querySelector('.ledger-chevron');
+                if (chevron) chevron.textContent = '›';
+            });
+
+            if (!isOpen) {
+                const label = row.dataset.extraLabel;
+                const value = row.dataset.extra;
+                const detail = document.createElement('tr');
+                detail.className = 'ledger-detail-row';
+                detail.innerHTML = `<td colspan="8" class="ledger-detail-cell"><span class="ledger-detail-label">${label}</span><span class="ledger-detail-value">${value}</span></td>`;
+                row.parentNode.insertBefore(detail, row.nextSibling);
+                row.classList.add('ledger-row-expanded');
+                const chevron = row.querySelector('.ledger-chevron');
+                if (chevron) chevron.textContent = '⌄';
+            }
         });
     });
 

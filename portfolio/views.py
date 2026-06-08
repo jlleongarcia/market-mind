@@ -350,8 +350,8 @@ def portfolio_detail_view(request, pk):
                 'date': tx_date, 'type': 'buy', 'label': 'Buy',
                 'symbol': tx.symbol,
                 'price': price, 'quantity': qty,
-                'commission': -commission if commission else 0,
-                'total': -(price * qty + commission),
+                'commission': commission,
+                'total': price * qty + commission,
                 'extra': f"{float(tx.buy_yield):.2f}%" if tx.buy_yield else None,
                 'extra_class': 'positive',
             })
@@ -362,7 +362,7 @@ def portfolio_detail_view(request, pk):
                 'date': tx_date, 'type': 'sell', 'label': 'Sell',
                 'symbol': tx.symbol,
                 'price': price, 'quantity': qty,
-                'commission': -commission if commission else 0,
+                'commission': commission,
                 'total': price * qty - commission,
                 'extra': f"${pnl:+,.2f}" if pnl is not None else None,
                 'extra_class': 'positive' if (pnl or 0) >= 0 else 'negative',
@@ -372,7 +372,7 @@ def portfolio_detail_view(request, pk):
                 'date': tx_date, 'type': 'div', 'label': 'Dividend',
                 'symbol': tx.symbol,
                 'price': price, 'quantity': qty,
-                'commission': -commission if commission else 0,
+                'commission': commission,
                 'total': price * qty - commission,
                 'extra': None, 'extra_class': None,
             })
