@@ -103,7 +103,6 @@
             <tr onclick="window.location.href='{% url "portfolio:position_detail_view" portfolio.id pos.symbol %}'">
                 <td>
                     <span class="font-bold">{{ pos.symbol }}</span>
-                    {% if pos.pays_dividend %}<span class="badge badge-success" style="margin-left:4px;font-size:0.65rem;">DIV</span>{% endif %}
                 </td>
                 <td class="text-muted text-sm">{{ pos.company_name }}</td>
                 <td class="text-right">{{ pos.quantity|floatformat:4 }}</td>
@@ -140,7 +139,6 @@
             <tr onclick="window.location.href='{% url "portfolio:position_detail_view" portfolio.id pos.symbol %}'">
                 <td>
                     <span class="font-bold">{{ pos.symbol }}</span>
-                    {% if pos.pays_dividend %}<span class="badge badge-success" style="margin-left:4px;font-size:0.65rem;">DIV</span>{% endif %}
                 </td>
                 <td class="text-muted text-sm">{{ pos.company_name }}</td>
                 <td class="text-right">{{ pos.quantity|floatformat:4 }}</td>
@@ -186,7 +184,6 @@
             <tr onclick="window.location.href='{% url "portfolio:position_detail_view" portfolio.id pos.symbol %}'">
                 <td>
                     <span class="font-bold">{{ pos.symbol }}</span>
-                    {% if pos.pays_dividend %}<span class="badge badge-success" style="margin-left:4px;font-size:0.65rem;">DIV</span>{% endif %}
                 </td>
                 <td class="text-muted text-sm">{{ pos.company_name }}</td>
                 <td class="text-right">
