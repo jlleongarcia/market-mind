@@ -392,6 +392,30 @@ def portfolio_detail_view(request, pk):
                 'commission': 0, 'total': price,
                 'extra': None, 'extra_class': None,
             })
+        elif tx.transaction_type == 'DEP':
+            ledger.append({
+                'date': tx_date, 'type': 'dep', 'label': 'Deposit',
+                'symbol': tx.symbol or '—',
+                'price': None, 'quantity': None,
+                'commission': 0, 'total': price,
+                'extra': None, 'extra_class': None,
+            })
+        elif tx.transaction_type == 'WIT':
+            ledger.append({
+                'date': tx_date, 'type': 'wit', 'label': 'Withdrawal',
+                'symbol': tx.symbol or '—',
+                'price': None, 'quantity': None,
+                'commission': 0, 'total': price,
+                'extra': None, 'extra_class': None,
+            })
+        elif tx.transaction_type == 'EXC':
+            ledger.append({
+                'date': tx_date, 'type': 'exc', 'label': 'Exchange',
+                'symbol': tx.symbol or '—',
+                'price': price, 'quantity': qty,
+                'commission': commission, 'total': price * qty,
+                'extra': None, 'extra_class': None,
+            })
 
     for div in portfolio.dividends.order_by('-payment_date'):
         ledger.append({
@@ -463,51 +487,57 @@ def transaction_create_view(request, portfolio_id):
     """Frontend view: Add transaction to portfolio"""
     portfolio = get_object_or_404(Portfolio, pk=portfolio_id, user=request.user)
     
+    # Types that do not require a stock symbol or shares
+    CASH_TYPES = {'INT', 'DEP', 'WIT'}
+    STOCK_TYPES = {'BUY', 'SELL', 'DIV', 'SPOF'}
+
     if request.method == 'POST':
         try:
-            symbol = request.POST.get('symbol', '').strip().upper()
-            
-            # Validate symbol is provided
-            if not symbol:
-                messages.error(request, 'Stock symbol is required.')
-                return render(request, 'portfolio/transaction_form.html', {
-                    'portfolio': portfolio,
-                    'today': datetime.now().strftime('%Y-%m-%d')
-                })
-            
-            # Ensure stock exists in database (auto-fetch if needed)
-            success, message, stock = PortfolioCalculationService.ensure_stock_exists(symbol)
-            if not success:
-                messages.error(request, message)
-                return render(request, 'portfolio/transaction_form.html', {
-                    'portfolio': portfolio,
-                    'today': datetime.now().strftime('%Y-%m-%d')
-                })
-            
-            # Use the resolved symbol from stock object (handles redirects like FB→META)
-            resolved_symbol = stock.symbol
-            
-            # Get and clean form values
-            commission_value = request.POST.get('commission', '').strip()
-            if not commission_value:
-                commission_value = 0
-            
-            # Create transaction with resolved symbol
+            tx_type = request.POST.get('transaction_type', '').upper()
+            symbol  = request.POST.get('symbol', '').strip().upper()
+
+            if tx_type in STOCK_TYPES:
+                # Stock transactions always need a valid symbol
+                if not symbol:
+                    messages.error(request, 'Stock symbol is required.')
+                    return render(request, 'portfolio/transaction_form.html', {
+                        'portfolio': portfolio,
+                        'today': datetime.now().strftime('%Y-%m-%d')
+                    })
+                success, message, stock = PortfolioCalculationService.ensure_stock_exists(symbol)
+                if not success:
+                    messages.error(request, message)
+                    return render(request, 'portfolio/transaction_form.html', {
+                        'portfolio': portfolio,
+                        'today': datetime.now().strftime('%Y-%m-%d')
+                    })
+                resolved_symbol = stock.symbol
+            else:
+                # Cash / currency types — symbol is optional, no stock lookup
+                resolved_symbol = symbol
+
+            commission_value = request.POST.get('commission', '').strip() or '0'
+
+            # Cash types have no shares — store quantity as 1
+            quantity_raw = request.POST.get('quantity', '').strip()
+            quantity_value = Decimal(quantity_raw) if quantity_raw else Decimal('1')
+
             transaction = Transaction.objects.create(
                 portfolio=portfolio,
-                symbol=resolved_symbol,  # Use resolved symbol, not original input
-                transaction_type=request.POST.get('transaction_type'),
-                quantity=Decimal(request.POST.get('quantity')),
+                symbol=resolved_symbol,
+                transaction_type=tx_type,
+                quantity=quantity_value,
                 price=Decimal(request.POST.get('price')),
-                commission=Decimal(str(commission_value)),
+                commission=Decimal(commission_value),
                 transaction_date=request.POST.get('transaction_date'),
                 broker=request.POST.get('broker', ''),
                 notes=request.POST.get('notes', '')
             )
-            
-            # Update position
-            PortfolioCalculationService.update_position_from_transaction(transaction)
-            
+
+            # Update position only for stock transactions
+            if tx_type in STOCK_TYPES:
+                PortfolioCalculationService.update_position_from_transaction(transaction)
+
             # Fetch and store buy yield if applicable
             if transaction.transaction_type == 'BUY':
                 PortfolioCalculationService.fetch_and_store_buy_yield(transaction)
@@ -525,6 +555,19 @@ def transaction_create_view(request, portfolio_id):
         'portfolio': portfolio,
         'today': datetime.now().strftime('%Y-%m-%d')
     })
+
+
+@login_required
+@require_http_methods(["POST"])
+def portfolio_sync_dividends(request, pk):
+    """Auto-record dividend income for qualifying positions."""
+    portfolio = get_object_or_404(Portfolio, pk=pk, user=request.user)
+    result = PortfolioCalculationService.auto_record_dividends(portfolio)
+    if result['created'] > 0:
+        messages.success(request, f"{result['created']} dividend payment(s) recorded automatically.")
+    else:
+        messages.info(request, "No new dividends to record — everything is already up to date.")
+    return redirect('portfolio:portfolio_detail_view', pk=pk)
 
 
 @login_required

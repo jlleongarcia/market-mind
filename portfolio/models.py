@@ -118,6 +118,9 @@ class Transaction(models.Model):
         ('DIV', 'Dividend'),
         ('SPOF', 'Spin-Off'),
         ('INT', 'Interest'),
+        ('DEP', 'Deposit'),
+        ('WIT', 'Withdrawal'),
+        ('EXC', 'Exchange'),
     ]
 
     portfolio = models.ForeignKey(Portfolio, on_delete=models.CASCADE, related_name='transactions')

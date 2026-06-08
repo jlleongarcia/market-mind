@@ -373,3 +373,90 @@ class PortfolioCalculationService:
             error_msg = f"Error fetching stock '{symbol}': {str(e)}"
             logger.error(f"Error auto-fetching stock {symbol}: {str(e)}")
             return (False, error_msg, None)
+
+    @staticmethod
+    def _shares_held_on_date(portfolio, symbol, as_of_date):
+        """
+        Reconstruct shares held for a symbol at close of a given date
+        by replaying BUY/SELL/SPOF transactions up to and including that date.
+        """
+        from .models import Transaction
+        txs = Transaction.objects.filter(
+            portfolio=portfolio,
+            symbol=symbol,
+            transaction_type__in=['BUY', 'SELL', 'SPOF'],
+            transaction_date__date__lte=as_of_date,
+        ).order_by('transaction_date')
+
+        shares = Decimal('0')
+        for tx in txs:
+            if tx.transaction_type in ('BUY', 'SPOF'):
+                shares += tx.quantity
+            else:
+                shares -= tx.quantity
+        return max(shares, Decimal('0'))
+
+    @staticmethod
+    def auto_record_dividends(portfolio):
+        """
+        Scan research.Dividend history for every position and automatically
+        create portfolio.Dividend records for dividends the user qualified for
+        (i.e. held shares at close of the day before the ex-dividend date).
+
+        Returns a dict with counts of new records created and skipped duplicates.
+        Idempotent — safe to call multiple times.
+        """
+        from research.models import Dividend as ResearchDividend
+        from .models import Dividend as PortfolioDividend
+
+        symbols = list(portfolio.positions.values_list('symbol', flat=True))
+        if not symbols:
+            return {'created': 0, 'skipped': 0}
+
+        # Fetch all relevant research dividends in one query
+        research_divs = (
+            ResearchDividend.objects
+            .filter(stock__symbol__in=symbols)
+            .select_related('stock')
+            .order_by('stock__symbol', 'date')
+        )
+
+        # Existing portfolio dividend records keyed by (symbol, ex_date) for dedup
+        existing = set(
+            PortfolioDividend.objects.filter(portfolio=portfolio)
+            .exclude(ex_dividend_date=None)
+            .values_list('symbol', 'ex_dividend_date')
+        )
+
+        created = 0
+        skipped = 0
+
+        for div in research_divs:
+            symbol   = div.stock.symbol
+            ex_date  = div.date          # research.Dividend.date is the ex-date
+            check_date = ex_date - timedelta(days=1)
+
+            if (symbol, ex_date) in existing:
+                skipped += 1
+                continue
+
+            shares = PortfolioCalculationService._shares_held_on_date(
+                portfolio, symbol, check_date
+            )
+            if shares <= 0:
+                continue
+
+            total_amount = (div.amount * shares).quantize(Decimal('0.01'))
+
+            PortfolioDividend.objects.create(
+                portfolio=portfolio,
+                symbol=symbol,
+                amount=total_amount,
+                payment_date=ex_date,      # ex-date as proxy; user can correct
+                ex_dividend_date=ex_date,
+                notes='Auto-recorded',
+            )
+            existing.add((symbol, ex_date))
+            created += 1
+
+        return {'created': created, 'skipped': skipped}

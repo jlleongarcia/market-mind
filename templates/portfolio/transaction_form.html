@@ -19,40 +19,52 @@
         <form method="post" id="txForm">
             {% csrf_token %}
 
-            <!-- Buy / Sell toggle -->
-            <div class="type-tabs" role="group" aria-label="Transaction type">
-                <button type="button" class="type-tab active-buy" id="tabBuy" onclick="setType('BUY')">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
-                    Buy
-                </button>
-                <button type="button" class="type-tab" id="tabSell" onclick="setType('SELL')">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>
-                    Sell
-                </button>
+            <!-- Type selector -->
+            <div style="margin-bottom:20px;">
+                <div class="form-label" style="margin-bottom:8px;">Type</div>
+                <div style="display:flex;flex-direction:column;gap:6px;">
+                    <div class="type-tabs" id="typeGroupStock">
+                        <button type="button" class="type-tab active-buy" data-type="BUY">Buy</button>
+                        <button type="button" class="type-tab" data-type="SELL">Sell</button>
+                        <button type="button" class="type-tab" data-type="DIV">Dividend</button>
+                        <button type="button" class="type-tab" data-type="SPOF">Spin-Off</button>
+                    </div>
+                    <div class="type-tabs">
+                        <button type="button" class="type-tab" data-type="INT">Interest</button>
+                        <button type="button" class="type-tab" data-type="DEP">Deposit</button>
+                        <button type="button" class="type-tab" data-type="WIT">Withdrawal</button>
+                        <button type="button" class="type-tab" data-type="EXC">Exchange</button>
+                    </div>
+                </div>
             </div>
             <input type="hidden" name="transaction_type" id="txType" value="BUY">
 
-            <!-- Symbol (full width) -->
-            <div class="form-group">
-                <label class="form-label" for="symbol">Ticker Symbol <span class="required">*</span></label>
+            <!-- Symbol -->
+            <div class="form-group" id="fieldSymbol">
+                <label class="form-label" for="symbol">
+                    <span id="symbolLabel">Ticker Symbol</span>
+                    <span class="required" id="symbolRequired">*</span>
+                </label>
                 <input type="text" id="symbol" name="symbol" class="form-control"
                        placeholder="e.g. AAPL, KO, JNJ"
                        style="text-transform:uppercase;font-weight:600;letter-spacing:0.04em;"
-                       required autofocus>
-                <p class="form-hint">Stock is fetched automatically if not in the database</p>
+                       autofocus>
+                <p class="form-hint" id="symbolHint">Stock is fetched automatically if not in the database</p>
             </div>
 
             <div class="form-grid-2">
-                <div class="form-group">
-                    <label class="form-label" for="quantity">Shares <span class="required">*</span></label>
+                <!-- Shares — hidden for cash-only types -->
+                <div class="form-group" id="fieldShares">
+                    <label class="form-label" for="quantity"><span id="sharesLabel">Shares</span> <span class="required">*</span></label>
                     <input type="number" id="quantity" name="quantity" class="form-control"
-                           step="0.0001" min="0.0001" placeholder="0.00" required>
+                           step="0.0001" min="0.0001" placeholder="0.00">
                 </div>
 
+                <!-- Price / Amount -->
                 <div class="form-group">
-                    <label class="form-label" for="price">Price per Share <span class="required">*</span></label>
+                    <label class="form-label" for="price"><span id="priceLabel">Price per Share</span> <span class="required">*</span></label>
                     <input type="number" id="price" name="price" class="form-control"
-                           step="0.01" min="0.01" placeholder="0.00" required>
+                           step="0.0001" min="0.0001" placeholder="0.00" required>
                 </div>
 
                 <div class="form-group">
@@ -61,13 +73,15 @@
                            value="{{ today }}" required>
                 </div>
 
-                <div class="form-group">
+                <!-- Commission — hidden for cash-only types -->
+                <div class="form-group" id="fieldCommission">
                     <label class="form-label" for="commission">Commission / Fees</label>
                     <input type="number" id="commission" name="commission" class="form-control"
                            step="0.01" min="0" value="0.00" placeholder="0.00">
                 </div>
 
-                <div class="form-group col-full">
+                <!-- Broker — shown only for BUY/SELL -->
+                <div class="form-group col-full" id="fieldBroker">
                     <label class="form-label" for="broker">Broker</label>
                     <input type="text" id="broker" name="broker" class="form-control"
                            placeholder="e.g. Interactive Brokers, Degiro, eToro">
@@ -80,9 +94,9 @@
                 </div>
             </div>
 
-            <!-- Total preview -->
-            <div style="background:#f8fafc;border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;">
-                <span style="font-size:0.85rem;color:var(--text-secondary);">Estimated total</span>
+            <!-- Total preview — hidden for single-amount types -->
+            <div id="totalPreviewRow" style="background:#f8fafc;border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:0.85rem;color:var(--text-secondary);" id="totalLabel">Estimated total</span>
                 <span style="font-size:1.1rem;font-weight:700;color:var(--text-primary);" id="totalPreview">$0.00</span>
             </div>
 
@@ -101,33 +115,91 @@
 
 {% block extra_js %}
 <script>
+const TYPE_CONFIG = {
+    BUY:  { symbolRequired: true,  symbolHint: 'Stock is fetched automatically if not in the database', sharesVisible: true,  priceLabel: 'Price per Share',  commissionVisible: true,  brokerVisible: true,  totalVisible: true  },
+    SELL: { symbolRequired: true,  symbolHint: 'Stock is fetched automatically if not in the database', sharesVisible: true,  priceLabel: 'Price per Share',  commissionVisible: true,  brokerVisible: true,  totalVisible: true  },
+    DIV:  { symbolRequired: true,  symbolHint: 'Ticker that paid the dividend',                         sharesVisible: true,  priceLabel: 'Dividend per Share', commissionVisible: false, brokerVisible: false, totalVisible: true  },
+    SPOF: { symbolRequired: true,  symbolHint: 'New ticker received in the spin-off',                   sharesVisible: true,  priceLabel: 'Price per Share',   commissionVisible: false, brokerVisible: false, totalVisible: true  },
+    INT:  { symbolRequired: false, symbolHint: 'Optional — e.g. currency or source',                    sharesVisible: false, priceLabel: 'Amount',            commissionVisible: false, brokerVisible: false, totalVisible: false },
+    DEP:  { symbolRequired: false, symbolHint: 'Optional — e.g. USD, EUR',                              sharesVisible: false, priceLabel: 'Amount',            commissionVisible: false, brokerVisible: false, totalVisible: false },
+    WIT:  { symbolRequired: false, symbolHint: 'Optional — e.g. USD, EUR',                              sharesVisible: false, priceLabel: 'Amount',            commissionVisible: false, brokerVisible: false, totalVisible: false },
+    EXC:  { symbolRequired: false, symbolHint: 'Optional — e.g. EUR/USD currency pair',                 sharesVisible: true,  priceLabel: 'Exchange Rate',     commissionVisible: true,  brokerVisible: false, totalVisible: true  },
+};
+
+const ACTIVE_CLASSES = {
+    BUY:  'active-buy',  SELL: 'active-sell',
+    DIV:  'active-div',  SPOF: 'active-spof',
+    INT:  'active-int',  DEP:  'active-dep',
+    WIT:  'active-wit',  EXC:  'active-exc',
+};
+
 function setType(type) {
     document.getElementById('txType').value = type;
-    const buy  = document.getElementById('tabBuy');
-    const sell = document.getElementById('tabSell');
-    if (type === 'BUY') {
-        buy.className  = 'type-tab active-buy';
-        sell.className = 'type-tab';
-    } else {
-        sell.className = 'type-tab active-sell';
-        buy.className  = 'type-tab';
-    }
+    const cfg = TYPE_CONFIG[type];
+
+    // Update all tab buttons
+    document.querySelectorAll('.type-tab').forEach(btn => {
+        btn.className = 'type-tab';
+        if (btn.dataset.type === type) {
+            btn.className = 'type-tab ' + ACTIVE_CLASSES[type];
+        }
+    });
+
+    // Symbol field
+    const symbolInput = document.getElementById('symbol');
+    document.getElementById('symbolRequired').style.display = cfg.symbolRequired ? '' : 'none';
+    symbolInput.required = cfg.symbolRequired;
+    document.getElementById('symbolHint').textContent = cfg.symbolHint;
+
+    // Shares
+    const sharesRow = document.getElementById('fieldShares');
+    const sharesInput = document.getElementById('quantity');
+    sharesRow.style.display = cfg.sharesVisible ? '' : 'none';
+    sharesInput.required = cfg.sharesVisible;
+
+    // Price label
+    document.getElementById('priceLabel').textContent = cfg.priceLabel;
+
+    // Commission
+    document.getElementById('fieldCommission').style.display = cfg.commissionVisible ? '' : 'none';
+
+    // Broker
+    document.getElementById('fieldBroker').style.display = cfg.brokerVisible ? '' : 'none';
+
+    // Total preview
+    document.getElementById('totalPreviewRow').style.display = cfg.totalVisible ? '' : 'none';
+
+    updateTotal();
 }
 
 function updateTotal() {
+    const type = document.getElementById('txType').value;
+    const cfg  = TYPE_CONFIG[type];
+    if (!cfg.totalVisible) return;
+
     const qty   = parseFloat(document.getElementById('quantity').value) || 0;
     const price = parseFloat(document.getElementById('price').value) || 0;
-    const comm  = parseFloat(document.getElementById('commission').value) || 0;
-    const total = qty * price + comm;
-    document.getElementById('totalPreview').textContent = '$' + total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const comm  = cfg.commissionVisible ? (parseFloat(document.getElementById('commission').value) || 0) : 0;
+    const total = cfg.sharesVisible ? qty * price + comm : price;
+    document.getElementById('totalPreview').textContent =
+        '$' + total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-document.getElementById('symbol').addEventListener('input', function (e) {
+// Wire up tab buttons
+document.querySelectorAll('.type-tab').forEach(btn => {
+    btn.addEventListener('click', () => setType(btn.dataset.type));
+});
+
+// Auto-uppercase symbol
+document.getElementById('symbol').addEventListener('input', function(e) {
     e.target.value = e.target.value.toUpperCase();
 });
 
 ['quantity', 'price', 'commission'].forEach(id => {
     document.getElementById(id).addEventListener('input', updateTotal);
 });
+
+// Init
+setType('BUY');
 </script>
 {% endblock %}
