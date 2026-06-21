@@ -104,7 +104,10 @@
                 <td class="text-right">{{ pos.quantity|floatformat:4 }}</td>
                 <td class="text-right">${{ pos.total_invested|floatformat:2 }}</td>
                 <td class="text-right">${{ pos.average_cost|floatformat:2 }}</td>
-                <td class="text-right">${{ pos.current_price|floatformat:2 }}</td>
+                <td class="text-right">
+                    ${{ pos.current_price|floatformat:2 }}
+                    {% if not pos.price_is_live %}<span class="text-muted" style="font-size:0.7rem;vertical-align:super;" title="As of {{ pos.price_date }}">*</span>{% endif %}
+                </td>
                 <td class="text-right font-bold">${{ pos.current_value|floatformat:2 }}</td>
                 <td class="text-right">
                     {% if pos.gain_loss >= 0 %}+{% endif %}{{ pos.gain_loss_percentage|floatformat:2 }}%
@@ -113,6 +116,11 @@
             {% endfor %}
             </tbody>
         </table>
+        {% if summary.price_as_of %}
+        <p class="text-muted" style="font-size:0.78rem;margin-top:6px;padding:0 4px;">
+            * Prices as of {{ summary.price_as_of }} &mdash; market closed
+        </p>
+        {% endif %}
         </div>
         </div>
 

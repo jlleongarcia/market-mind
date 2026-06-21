@@ -7,6 +7,7 @@ from decimal import Decimal
 from django.core.cache import cache
 from django.db.models import Max, Min, Sum, Q
 from research.models import FinancialMetrics, HistoricalPrice, Stock
+from research.services import PriceCacheService
 
 
 class PortfolioCalculationService:
@@ -58,31 +59,15 @@ class PortfolioCalculationService:
             price_range_map = {r['stock__symbol']: r for r in price_ranges}
             cache.set(range_cache_key, price_range_map, timeout=8 * 3600)
 
-        # Latest close price — keyed by portfolio + date; TTL 4 h (end-of-day data, won't change intraday)
-        prices_cache_key = f"market_prices_{portfolio.id}_{today}"
-        market_price_map = cache.get(prices_cache_key)
-        if market_price_map is None:
-            market_price_map = {}
-            if symbols:
-                latest_date_rows = HistoricalPrice.objects.filter(
-                    stock__symbol__in=symbols,
-                ).values('stock__symbol').annotate(latest_date=Max('date'))
-                latest_date_map = {r['stock__symbol']: r['latest_date'] for r in latest_date_rows}
-
-                price_filter = Q()
-                for sym, dt in latest_date_map.items():
-                    price_filter |= Q(stock__symbol=sym, date=dt)
-                if latest_date_map:
-                    for row in HistoricalPrice.objects.filter(price_filter).values('stock__symbol', 'close'):
-                        market_price_map[row['stock__symbol']] = float(row['close'])
-            cache.set(prices_cache_key, market_price_map, timeout=4 * 3600)
+        # Live prices — per-symbol cache shared across all views (15 min during market hours)
+        price_data_map = PriceCacheService.get_prices(symbols) if symbols else {}
 
         # Build positions with fresh prices
         weighted_yoc_sum = 0
         weighted_yoc_cost = 0
 
         for position in positions:
-            position_data = PortfolioCalculationService.get_position_detail(position, price_range_map, market_price_map)
+            position_data = PortfolioCalculationService.get_position_detail(position, price_range_map, price_data_map)
             summary['positions'].append(position_data)
 
         # Recompute all summary totals from fresh position data (no stale current_price)
@@ -106,17 +91,24 @@ class PortfolioCalculationService:
         summary['summary']['average_yield_on_cost']    = round(weighted_yoc_sum / weighted_yoc_cost, 2) if weighted_yoc_cost > 0 else 0
         summary['metrics']['dividend_stocks_count']    = div_count
 
+        # Price footnote — shown below positions table when market is closed
+        stale_dates = [
+            p['price_date'] for p in summary['positions']
+            if not p.get('price_is_live') and p.get('price_date')
+        ]
+        summary['price_as_of'] = min(stale_dates) if stale_dates else None
+
         return summary
     
     @staticmethod
-    def get_position_detail(position, price_range_map=None, market_price_map=None):
+    def get_position_detail(position, price_range_map=None, price_data_map=None):
         """
         Get detailed information for a single position.
 
         Args:
             position: Position instance
-            price_range_map: optional dict {symbol: {high_52w, low_52w}} pre-computed by caller
-            market_price_map: optional dict {symbol: latest_close} pre-computed by caller
+            price_range_map: optional {symbol: {high_52w, low_52w}} pre-computed by caller
+            price_data_map: optional {symbol: {'price', 'is_live', 'price_date'}} from PriceCacheService
         """
         metrics = position.get_current_metrics()
 
@@ -128,9 +120,22 @@ class PortfolioCalculationService:
 
         pr = (price_range_map or {}).get(position.symbol, {})
 
-        # Priority: latest HistoricalPrice close > stored current_price > average_cost
-        market_price = (market_price_map or {}).get(position.symbol)
-        display_price = market_price or (float(position.current_price) if position.current_price else float(position.average_cost))
+        # Resolve current price — fetch from live cache when not pre-supplied
+        price_entry = (price_data_map or {}).get(position.symbol)
+        if price_entry is None:
+            fetched = PriceCacheService.get_prices([position.symbol])
+            price_entry = fetched.get(position.symbol)
+
+        if price_entry:
+            display_price = price_entry['price']
+            price_is_live = price_entry['is_live']
+            price_date    = price_entry['price_date']
+        else:
+            # Last-resort fallback: stale DB fields
+            display_price = float(position.current_price) if position.current_price else float(position.average_cost)
+            price_is_live = False
+            price_date    = None
+
         qty = float(position.quantity)
         total_cost = float(position.total_cost)
         current_value = display_price * qty
@@ -143,6 +148,8 @@ class PortfolioCalculationService:
             'quantity': qty,
             'average_cost': float(position.average_cost),
             'current_price': display_price,
+            'price_is_live': price_is_live,
+            'price_date': price_date,
             'total_invested': total_cost,
             'current_value': current_value,
             'gain_loss': gain_loss,

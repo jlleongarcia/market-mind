@@ -1,9 +1,11 @@
 """
 Data fetching services for stock market data using yfinance
 """
+import math
+import threading
 import yfinance as yf
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from decimal import Decimal
 from typing import Optional, Dict, List, Tuple
 from django.utils import timezone
@@ -641,5 +643,148 @@ class StockDataFetcher:
         except Exception as e:
             logger.error(f"Error in fetch_and_save_all for {symbol}: {str(e)}")
             results['errors'].append(str(e))
-        
+
         return results
+
+
+class PriceCacheService:
+    """
+    Real-time price layer with market-aware TTL.
+
+    During NYSE hours (Mon–Fri 09:30–16:00 ET) prices are refreshed every 15 min
+    from yfinance (15-min delayed, same as Yahoo Finance).  Outside market hours
+    a 2-hour TTL keeps the last known close in cache.
+
+    All pages share the same per-symbol cache key so discrepancies between views
+    are impossible.  After market close the day's OHLC is lazily persisted to
+    HistoricalPrice in a background thread.
+    """
+
+    LIVE_TTL = 15 * 60      # seconds — during market hours
+    CLOSED_TTL = 2 * 3600   # seconds — outside market hours
+
+    # ------------------------------------------------------------------ #
+    # Public API                                                           #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def is_market_open() -> bool:
+        """True when NYSE regular session is active (no holiday check)."""
+        from zoneinfo import ZoneInfo
+        now = datetime.now(tz=ZoneInfo('America/New_York'))
+        if now.weekday() >= 5:          # Saturday or Sunday
+            return False
+        open_time  = now.replace(hour=9,  minute=30, second=0, microsecond=0)
+        close_time = now.replace(hour=16, minute=0,  second=0, microsecond=0)
+        return open_time <= now <= close_time
+
+    @classmethod
+    def get_prices(cls, symbols: list) -> dict:
+        """
+        Return {symbol: {'price': float, 'is_live': bool, 'price_date': str}}.
+
+        is_live=True  → fresh yfinance price (intraday, 15-min delayed)
+        is_live=False → last close from HistoricalPrice DB
+        price_date    → ISO date string ('YYYY-MM-DD')
+        """
+        from django.core.cache import cache
+
+        result = {}
+        to_fetch = []
+
+        for symbol in symbols:
+            cached = cache.get(f"live_price_{symbol}")
+            if cached is not None:
+                result[symbol] = cached
+            else:
+                to_fetch.append(symbol)
+
+        if to_fetch:
+            is_open  = cls.is_market_open()
+            ttl      = cls.LIVE_TTL if is_open else cls.CLOSED_TTL
+            today    = date.today().isoformat()
+
+            yf_prices = cls._fetch_yfinance_prices(to_fetch)
+
+            for symbol in to_fetch:
+                if symbol in yf_prices:
+                    entry = {
+                        'price':      yf_prices[symbol],
+                        'is_live':    is_open,
+                        'price_date': today,
+                    }
+                    cache.set(f"live_price_{symbol}", entry, timeout=ttl)
+                    result[symbol] = entry
+
+            # After close: persist today's candle to HistoricalPrice in background
+            if not is_open and yf_prices:
+                threading.Thread(
+                    target=cls._lazy_save_historical,
+                    args=(list(yf_prices.keys()),),
+                    daemon=True,
+                ).start()
+
+        # Fall back to HistoricalPrice for any symbol yfinance could not serve
+        missing = [s for s in symbols if s not in result]
+        if missing:
+            cls._fill_from_historical(missing, result)
+
+        return result
+
+    @classmethod
+    def invalidate(cls, symbol: str) -> None:
+        """Force a yfinance refresh on the next request for this symbol."""
+        from django.core.cache import cache
+        cache.delete(f"live_price_{symbol}")
+
+    # ------------------------------------------------------------------ #
+    # Internal helpers                                                     #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _fetch_yfinance_prices(symbols: list) -> dict:
+        """Fast per-symbol last-price lookup via fast_info."""
+        result = {}
+        for symbol in symbols:
+            try:
+                price = yf.Ticker(symbol).fast_info.last_price
+                if price is not None and not math.isnan(float(price)):
+                    result[symbol] = float(price)
+            except Exception as e:
+                logger.warning(f"Live price fetch failed for {symbol}: {e}")
+        return result
+
+    @staticmethod
+    def _fill_from_historical(symbols: list, result: dict) -> None:
+        """Populate result with the most-recent HistoricalPrice close for each symbol."""
+        from django.db.models import Max, Q
+        latest_dates = (
+            HistoricalPrice.objects.filter(stock__symbol__in=symbols)
+            .values('stock__symbol')
+            .annotate(latest_date=Max('date'))
+        )
+        date_map = {r['stock__symbol']: r['latest_date'] for r in latest_dates}
+        if not date_map:
+            return
+        q = Q()
+        for sym, dt in date_map.items():
+            q |= Q(stock__symbol=sym, date=dt)
+        for row in HistoricalPrice.objects.filter(q).values('stock__symbol', 'close', 'date'):
+            result[row['stock__symbol']] = {
+                'price':      float(row['close']),
+                'is_live':    False,
+                'price_date': row['date'].isoformat(),
+            }
+
+    @staticmethod
+    def _lazy_save_historical(symbols: list) -> None:
+        """Background thread: save today's full OHLC candle to HistoricalPrice if missing."""
+        today = date.today()
+        fetcher = StockDataFetcher()
+        for symbol in symbols:
+            try:
+                if not HistoricalPrice.objects.filter(stock__symbol=symbol, date=today).exists():
+                    fetcher.save_historical_prices(symbol, period='5d')
+                    logger.info(f"Lazy-saved historical prices for {symbol}")
+            except Exception as e:
+                logger.warning(f"Lazy historical save failed for {symbol}: {e}")

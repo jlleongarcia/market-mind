@@ -545,12 +545,14 @@ def transaction_create_view(request, portfolio_id):
             if transaction.transaction_type == 'BUY':
                 PortfolioCalculationService.fetch_and_store_buy_yield(transaction)
 
-            # Bust price caches so the new position is reflected immediately
-            from django.core.cache import cache as _cache
+            # Bust price caches so the new position reflects immediately
             from datetime import date as _date
+            from django.core.cache import cache as _cache
+            from research.services import PriceCacheService
             _today = _date.today().isoformat()
-            _cache.delete(f"market_prices_{portfolio.id}_{_today}")
             _cache.delete(f"price_range_{portfolio.id}_{_today}")
+            if transaction.symbol:
+                PriceCacheService.invalidate(transaction.symbol)
 
             messages.success(request, f'Transaction for {transaction.symbol} added successfully!')
             return redirect('portfolio:portfolio_detail_view', pk=portfolio.id)
