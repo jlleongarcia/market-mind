@@ -572,13 +572,19 @@ def transaction_create_view(request, portfolio_id):
 @login_required
 @require_http_methods(["POST"])
 def portfolio_sync_dividends(request, pk):
-    """Auto-record dividend income for qualifying positions."""
+    """Refresh research dividend data from yfinance, then auto-record qualifying payments."""
     portfolio = get_object_or_404(Portfolio, pk=pk, user=request.user)
     result = PortfolioCalculationService.auto_record_dividends(portfolio)
     if result['created'] > 0:
         messages.success(request, f"{result['created']} dividend payment(s) recorded automatically.")
     else:
         messages.info(request, "No new dividends to record — everything is already up to date.")
+    if result.get('refresh_errors'):
+        messages.warning(
+            request,
+            f"Could not refresh data for: {', '.join(result['refresh_errors'])}. "
+            "Those symbols may show stale dividends."
+        )
     return redirect('portfolio:portfolio_detail_view', pk=pk)
 
 

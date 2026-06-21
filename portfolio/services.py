@@ -2,12 +2,15 @@
 Portfolio calculation services
 Handles complex portfolio analytics and calculations
 """
+import logging
 from datetime import date, timedelta
 from decimal import Decimal
 from django.core.cache import cache
 from django.db.models import Max, Min, Sum, Q
 from research.models import FinancialMetrics, HistoricalPrice, Stock
 from research.services import PriceCacheService
+
+logger = logging.getLogger(__name__)
 
 
 class PortfolioCalculationService:
@@ -417,21 +420,53 @@ class PortfolioCalculationService:
     @staticmethod
     def auto_record_dividends(portfolio):
         """
-        Scan research.Dividend history for every position and automatically
+        Refresh research.Dividend data from yfinance for every position, then
         create portfolio.Dividend records for dividends the user qualified for
-        (i.e. held shares at close of the day before the ex-dividend date).
+        (held shares at close of the day before the ex-dividend date).
 
         Returns a dict with counts of new records created and skipped duplicates.
         Idempotent — safe to call multiple times.
         """
         from research.models import Dividend as ResearchDividend
+        from research.services import StockDataFetcher
         from .models import Dividend as PortfolioDividend
 
         symbols = list(portfolio.positions.values_list('symbol', flat=True))
         if not symbols:
             return {'created': 0, 'skipped': 0}
 
-        # Fetch all relevant research dividends in one query
+        # Step 1 — pull fresh dividend history from yfinance so we never miss
+        # a recent ex-dividend that wasn't present when the stock was first added.
+        # Cache flag prevents redundant yfinance calls within the same calendar day.
+        # Symbols that need fetching are dispatched in parallel (max 5 workers).
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        fetcher = StockDataFetcher()
+        today_str = date.today().isoformat()
+
+        stale = [s for s in symbols if not cache.get(f"dividend_refreshed_{s}_{today_str}")]
+        fresh = [s for s in symbols if s not in stale]
+        if fresh:
+            logger.debug(f"Skipping yfinance refresh for {fresh} (already refreshed today)")
+
+        refresh_errors = []
+
+        def _refresh(symbol):
+            fetcher.save_dividends(symbol)
+            return symbol
+
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            futures = {pool.submit(_refresh, s): s for s in stale}
+            for future in as_completed(futures):
+                symbol = futures[future]
+                try:
+                    future.result()
+                    cache.set(f"dividend_refreshed_{symbol}_{today_str}", True, timeout=20 * 3600)
+                except Exception as e:
+                    logger.warning(f"Could not refresh dividends for {symbol}: {e}")
+                    refresh_errors.append(symbol)
+
+        # Step 2 — re-query research dividends (now up to date)
         research_divs = (
             ResearchDividend.objects
             .filter(stock__symbol__in=symbols)
@@ -450,8 +485,8 @@ class PortfolioCalculationService:
         skipped = 0
 
         for div in research_divs:
-            symbol   = div.stock.symbol
-            ex_date  = div.date          # research.Dividend.date is the ex-date
+            symbol     = div.stock.symbol
+            ex_date    = div.date          # research.Dividend.date is the ex-date
             check_date = ex_date - timedelta(days=1)
 
             if (symbol, ex_date) in existing:
@@ -464,6 +499,10 @@ class PortfolioCalculationService:
             if shares <= 0:
                 continue
 
+            # Use the research-side payment_date when available so the portfolio
+            # entry sorts and displays correctly.
+            payment_date = getattr(div, 'payment_date', None)
+
             total_amount = (div.amount * shares).quantize(Decimal('0.01'))
 
             PortfolioDividend.objects.create(
@@ -471,11 +510,14 @@ class PortfolioCalculationService:
                 symbol=symbol,
                 amount=total_amount,
                 quantity=shares,
-                payment_date=None,         # unknown; ex_dividend_date is the authoritative date
+                payment_date=payment_date,
                 ex_dividend_date=ex_date,
                 notes='Auto-recorded',
             )
             existing.add((symbol, ex_date))
             created += 1
 
-        return {'created': created, 'skipped': skipped}
+        result = {'created': created, 'skipped': skipped}
+        if refresh_errors:
+            result['refresh_errors'] = refresh_errors
+        return result
