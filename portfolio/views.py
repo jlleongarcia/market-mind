@@ -317,12 +317,31 @@ from django.contrib import messages
 @login_required
 def portfolio_list_view(request):
     """Frontend view: List all portfolios"""
-    portfolios = Portfolio.objects.filter(user=request.user).prefetch_related('positions')
-    
-    # Add computed properties for template
+    from research.services import PriceCacheService
+
+    portfolios = list(Portfolio.objects.filter(user=request.user).prefetch_related('positions'))
+
+    # Single batch price lookup for every symbol across all portfolios
+    all_symbols = list({pos.symbol for p in portfolios for pos in p.positions.all()})
+    price_data = PriceCacheService.get_prices(all_symbols) if all_symbols else {}
+
     for portfolio in portfolios:
-        portfolio.positions_count = portfolio.positions.count()
-    
+        positions = list(portfolio.positions.all())
+        portfolio.positions_count = len(positions)
+
+        total_invested = sum(float(pos.total_cost) for pos in positions)
+        current_value = sum(
+            (price_data[pos.symbol]['price'] if pos.symbol in price_data
+             else (float(pos.current_price) if pos.current_price else float(pos.average_cost)))
+            * float(pos.quantity)
+            for pos in positions
+        )
+        gain_loss = current_value - total_invested
+        portfolio.live_total_value      = round(current_value, 2)
+        portfolio.live_total_invested   = round(total_invested, 2)
+        portfolio.live_total_return     = round(gain_loss, 2)
+        portfolio.live_return_pct       = round(gain_loss / total_invested * 100, 2) if total_invested else 0
+
     return render(request, 'portfolio/portfolio_list.html', {
         'portfolios': portfolios
     })

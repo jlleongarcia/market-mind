@@ -33,16 +33,16 @@
         <div class="portfolio-card-stats">
             <div class="pcs-item">
                 <div class="pcs-label">Value</div>
-                <div class="pcs-value">${{ portfolio.total_value|floatformat:2 }}</div>
+                <div class="pcs-value">${{ portfolio.live_total_value|floatformat:2 }}</div>
             </div>
             <div class="pcs-item">
                 <div class="pcs-label">Invested</div>
-                <div class="pcs-value">${{ portfolio.total_invested|floatformat:2 }}</div>
+                <div class="pcs-value">${{ portfolio.live_total_invested|floatformat:2 }}</div>
             </div>
             <div class="pcs-item">
                 <div class="pcs-label">Return</div>
-                <div class="pcs-value {% if portfolio.total_return >= 0 %}positive{% else %}negative{% endif %}">
-                    {% if portfolio.total_return >= 0 %}+{% endif %}{{ portfolio.total_return_percentage|floatformat:2 }}%
+                <div class="pcs-value {% if portfolio.live_total_return >= 0 %}positive{% else %}negative{% endif %}">
+                    {% if portfolio.live_total_return >= 0 %}+{% endif %}{{ portfolio.live_return_pct|floatformat:2 }}%
                 </div>
             </div>
             <div class="pcs-item">
