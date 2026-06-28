@@ -5,8 +5,8 @@
 **Prerequisites:** Docker with Docker Compose, Git.
 
 ```bash
-git clone https://github.com/jlleongarcia/PyStocks.git
-cd PyStocks
+git clone https://github.com/jlleongarcia/market-mind.git
+cd market-mind
 cp .env.example .env
 make setup
 ```

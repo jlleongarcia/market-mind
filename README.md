@@ -43,8 +43,8 @@ MarketMind is a self-hosted Django application for tracking stock portfolios, mo
 **Requires Docker and Docker Compose.**
 
 ```bash
-git clone https://github.com/jlleongarcia/PyStocks.git
-cd PyStocks
+git clone https://github.com/jlleongarcia/market-mind.git
+cd market-mind
 cp .env.example .env
 make setup
 ```
@@ -56,7 +56,7 @@ Open **http://localhost:8300** — default credentials: `admin` / `admin123`.
 ## Project Structure
 
 ```
-PyStocks/
+market-mind/
 ├── main/              # Django settings, root URLs, middleware
 ├── portfolio/         # Portfolios, transactions, FX lots, tax reports
 │   ├── models.py      # Portfolio, Transaction, FXLot, FXLotConsumption
