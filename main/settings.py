@@ -29,6 +29,15 @@ DEBUG = config('DEBUG', default=True, cast=bool)
 
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1,100.86.241.113,*').split(',')
 
+# Required for POST requests through Cloudflare (or any HTTPS reverse proxy)
+# Add your Cloudflare tunnel hostname(s) here, e.g. https://marketmind.example.com
+_csrf_origins = config('CSRF_TRUSTED_ORIGINS', default='')
+CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_origins.split(',') if o.strip()]
+
+# Tell Django it's behind a TLS-terminating proxy (Cloudflare handles HTTPS)
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+
 
 # Application definition
 
