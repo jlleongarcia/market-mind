@@ -126,17 +126,32 @@ class FXLotService:
         if not (transaction.to_currency and transaction.to_amount):
             return
 
-        native = transaction.portfolio.native_currency
-        to_cur = transaction.to_currency
-        to_amt = transaction.to_amount
+        native      = transaction.portfolio.native_currency
+        to_cur      = transaction.to_currency
+        to_amt      = transaction.to_amount
+        from_amt    = transaction.from_amount or Decimal('1')
+        commission  = transaction.commission or Decimal('0')
+        # Default commission currency to from_currency when not specified
+        comm_cur    = transaction.commission_currency or transaction.from_currency
 
-        # FX rate: 1 to_currency = ? native_currency
         if to_cur == native:
-            fx_rate = Decimal('1')
+            fx_rate     = Decimal('1')
+            native_cost = to_amt
         else:
-            # from_currency is the native perspective; compute rate
-            from_amt = transaction.from_amount or Decimal('1')
-            fx_rate = from_amt / to_amt if to_amt else Decimal('1')
+            # Total native cost = what you spent (from_amount) + commission in native terms.
+            if not comm_cur or comm_cur == transaction.from_currency:
+                # Commission paid in the source currency — add directly.
+                native_cost = from_amt + commission
+            elif comm_cur == to_cur:
+                # Commission deducted from the received side — convert to source currency
+                # using the implied rate before the fee.
+                implied_rate = from_amt / to_amt if to_amt else Decimal('0')
+                native_cost  = from_amt + commission * implied_rate
+            else:
+                # Unknown commission currency — fall back to ignoring it.
+                native_cost = from_amt
+
+            fx_rate = native_cost / to_amt if to_amt else Decimal('1')
 
         FXLot.objects.create(
             portfolio=transaction.portfolio,
@@ -147,7 +162,7 @@ class FXLotService:
             original_amount_foreign=to_amt,
             remaining_amount_foreign=to_amt,
             fx_rate=fx_rate,
-            original_amount_native=to_amt * fx_rate,
+            original_amount_native=native_cost,
         )
 
     @staticmethod
@@ -166,7 +181,8 @@ class FXLotService:
 
         # FIFO cost basis in stock-currency for the sold quantity
         fifo_cost = FXLotService._fifo_cost_basis_stock_currency(portfolio, symbol, transaction.quantity, tx_date)
-        proceeds = transaction.quantity * transaction.price  # gross proceeds in stock-currency
+        # Net proceeds: subtract sell commission so the virtual lot matches TaxReportService
+        proceeds = transaction.quantity * transaction.price - (transaction.commission or Decimal('0'))
 
         balance = proceeds - fifo_cost  # positive = profit, negative = loss
 
@@ -277,8 +293,16 @@ class FXLotService:
             transaction_date__date__lt=as_of_date,
         ).order_by('transaction_date')
 
-        # Build list of remaining buy lots [(qty_remaining, price_per_share)]
-        buy_lots = [[float(b.quantity), float(b.price)] for b in buys]
+        # Build list of remaining buy lots [(qty_remaining, effective_price_per_share)]
+        # Effective price includes commission amortised over the purchased shares so
+        # that the cost basis correctly reflects total acquisition cost.
+        buy_lots = [
+            [
+                float(b.quantity),
+                float(b.price) + (float(b.commission) / float(b.quantity) if b.quantity else 0),
+            ]
+            for b in buys
+        ]
         sold_so_far = sum(float(s.quantity) for s in sells)
 
         # Consume prior sales from oldest lots
@@ -641,15 +665,16 @@ class PortfolioCalculationService:
         )
         
         if transaction.transaction_type == 'BUY':
-            # Calculate new average cost
-            old_total_cost = position.quantity * position.average_cost
-            transaction_cost = transaction.quantity * transaction.price
-            new_quantity = position.quantity + transaction.quantity
-            
+            # Calculate new average cost including commission so that unrealized P&L
+            # and yield figures reflect true acquisition cost.
+            old_total_cost   = position.quantity * position.average_cost
+            transaction_cost = transaction.quantity * transaction.price + transaction.commission
+            new_quantity     = position.quantity + transaction.quantity
+
             if new_quantity > 0:
                 new_average_cost = (old_total_cost + transaction_cost) / new_quantity
                 position.average_cost = new_average_cost
-            
+
             position.quantity = new_quantity
             
         elif transaction.transaction_type == 'SELL':
