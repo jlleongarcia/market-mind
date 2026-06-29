@@ -291,7 +291,7 @@
                 {% if entry.commission %}${{ entry.commission|floatformat:2 }}{% else %}<span class="text-muted">—</span>{% endif %}
             </td>
             <td class="text-right font-bold">
-                ${{ entry.total|floatformat:2 }}
+                {% if entry.currency and entry.currency != 'USD' %}{{ entry.currency }} {{ entry.total|floatformat:2 }}{% else %}${{ entry.total|floatformat:2 }}{% endif %}
             </td>
             <td class="text-right" style="white-space:nowrap;" onclick="event.stopPropagation()">
                 {% if entry.tx_id %}
