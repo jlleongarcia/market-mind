@@ -288,7 +288,9 @@
                 {% if entry.quantity is not None %}{{ entry.quantity|floatformat:4 }}{% else %}<span class="text-muted">—</span>{% endif %}
             </td>
             <td class="text-right text-sm">
-                {% if entry.commission %}${{ entry.commission|floatformat:2 }}{% else %}<span class="text-muted">—</span>{% endif %}
+                {% if entry.commission %}
+                    {% if entry.commission_currency and entry.commission_currency != 'USD' %}{{ entry.commission_currency }} {{ entry.commission|floatformat:2 }}{% else %}${{ entry.commission|floatformat:2 }}{% endif %}
+                {% else %}<span class="text-muted">—</span>{% endif %}
             </td>
             <td class="text-right font-bold">
                 {% if entry.currency and entry.currency != 'USD' %}{{ entry.currency }} {{ entry.total|floatformat:2 }}{% else %}${{ entry.total|floatformat:2 }}{% endif %}

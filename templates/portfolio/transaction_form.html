@@ -306,14 +306,33 @@ function updateTotal() {
 }
 
 function updateEXCRate() {
-    const fromAmt = parseFloat(document.getElementById('from_amount').value) || 0;
-    const toAmt   = parseFloat(document.getElementById('to_amount').value)   || 0;
-    const fromCur = document.getElementById('from_currency').value.trim().toUpperCase();
-    const toCur   = document.getElementById('to_currency').value.trim().toUpperCase();
-    const el      = document.getElementById('excRateValue');
+    const fromAmt  = parseFloat(document.getElementById('from_amount').value) || 0;
+    const toAmt    = parseFloat(document.getElementById('to_amount').value)   || 0;
+    const fromCur  = document.getElementById('from_currency').value.trim().toUpperCase();
+    const toCur    = document.getElementById('to_currency').value.trim().toUpperCase();
+    const fee      = parseFloat(document.getElementById('commission').value)  || 0;
+    const feeCur   = document.getElementById('commission_currency').value.trim().toUpperCase();
+    const el       = document.getElementById('excRateValue');
+
     if (fromAmt > 0 && toAmt > 0 && fromCur && toCur) {
-        const rate = toAmt / fromAmt;
-        el.textContent = `1 ${fromCur} = ${rate.toFixed(6)} ${toCur}`;
+        // Adjust amounts to reflect the true cost including commission
+        let effectiveFrom = fromAmt;
+        let effectiveTo   = toAmt;
+        if (fee > 0) {
+            if (!feeCur || feeCur === fromCur) {
+                effectiveFrom = fromAmt + fee;   // fee paid on top of what you spend
+            } else if (feeCur === toCur) {
+                effectiveTo = toAmt - fee;        // fee deducted from what you receive
+            }
+        }
+        if (effectiveTo > 0) {
+            const rate = effectiveTo / effectiveFrom;
+            el.textContent = fee > 0
+                ? `1 ${fromCur} = ${rate.toFixed(6)} ${toCur} (incl. fee)`
+                : `1 ${fromCur} = ${rate.toFixed(6)} ${toCur}`;
+        } else {
+            el.textContent = '—';
+        }
     } else {
         el.textContent = '—';
     }
@@ -329,15 +348,21 @@ document.getElementById('symbol').addEventListener('input', function(e) {
     updateFXLabel(document.getElementById('txType').value);
 });
 
-['from_currency','to_currency'].forEach(id => {
+['from_currency','to_currency','commission_currency'].forEach(id => {
     document.getElementById(id).addEventListener('input', function(e) {
         e.target.value = e.target.value.toUpperCase();
         updateEXCRate();
     });
 });
 
-['quantity','price','commission'].forEach(id => {
+['quantity','price'].forEach(id => {
     document.getElementById(id).addEventListener('input', updateTotal);
+});
+
+// commission feeds both the total preview and the EXC effective rate
+document.getElementById('commission').addEventListener('input', function() {
+    updateTotal();
+    updateEXCRate();
 });
 
 ['from_amount','to_amount'].forEach(id => {

@@ -372,7 +372,7 @@ def portfolio_detail_view(request, pk):
         tx_cur = tx.transaction_currency or ''
         if tx.transaction_type == 'BUY':
             ledger.append({
-                'tx_id': tx.id, 'currency': tx_cur,
+                'tx_id': tx.id, 'currency': tx_cur, 'commission_currency': tx_cur,
                 'date': tx_date, 'type': 'buy', 'label': 'Buy',
                 'symbol': tx.symbol,
                 'price': price, 'quantity': qty,
@@ -385,7 +385,7 @@ def portfolio_detail_view(request, pk):
             avg = position_avg.get(tx.symbol)
             pnl = round((price - avg) * qty - commission, 2) if avg else None
             ledger.append({
-                'tx_id': tx.id, 'currency': tx_cur,
+                'tx_id': tx.id, 'currency': tx_cur, 'commission_currency': tx_cur,
                 'date': tx_date, 'type': 'sell', 'label': 'Sell',
                 'symbol': tx.symbol,
                 'price': price, 'quantity': qty,
@@ -396,7 +396,7 @@ def portfolio_detail_view(request, pk):
             })
         elif tx.transaction_type == 'DIV':
             ledger.append({
-                'tx_id': tx.id, 'currency': tx_cur,
+                'tx_id': tx.id, 'currency': tx_cur, 'commission_currency': tx_cur,
                 'date': tx_date, 'type': 'div', 'label': 'Dividend',
                 'symbol': tx.symbol,
                 'price': price, 'quantity': qty,
@@ -406,7 +406,7 @@ def portfolio_detail_view(request, pk):
             })
         elif tx.transaction_type == 'SPOF':
             ledger.append({
-                'tx_id': tx.id, 'currency': tx_cur,
+                'tx_id': tx.id, 'currency': tx_cur, 'commission_currency': tx_cur,
                 'date': tx_date, 'type': 'spof', 'label': 'Spin-Off',
                 'symbol': tx.symbol,
                 'price': price, 'quantity': qty,
@@ -415,7 +415,7 @@ def portfolio_detail_view(request, pk):
             })
         elif tx.transaction_type == 'INT':
             ledger.append({
-                'tx_id': tx.id, 'currency': tx_cur,
+                'tx_id': tx.id, 'currency': tx_cur, 'commission_currency': tx_cur,
                 'date': tx_date, 'type': 'int', 'label': 'Interest',
                 'symbol': tx.transaction_currency or '—',
                 'price': None, 'quantity': None,
@@ -424,7 +424,7 @@ def portfolio_detail_view(request, pk):
             })
         elif tx.transaction_type == 'DEP':
             ledger.append({
-                'tx_id': tx.id, 'currency': tx_cur,
+                'tx_id': tx.id, 'currency': tx_cur, 'commission_currency': tx_cur,
                 'date': tx_date, 'type': 'dep', 'label': 'Deposit',
                 'symbol': tx.transaction_currency or '—',
                 'price': None, 'quantity': None,
@@ -433,7 +433,7 @@ def portfolio_detail_view(request, pk):
             })
         elif tx.transaction_type == 'WIT':
             ledger.append({
-                'tx_id': tx.id, 'currency': tx_cur,
+                'tx_id': tx.id, 'currency': tx_cur, 'commission_currency': tx_cur,
                 'date': tx_date, 'type': 'wit', 'label': 'Withdrawal',
                 'symbol': tx.transaction_currency or '—',
                 'price': None, 'quantity': None,
@@ -443,6 +443,7 @@ def portfolio_detail_view(request, pk):
         elif tx.transaction_type == 'EXC':
             ledger.append({
                 'tx_id': tx.id, 'currency': tx.from_currency or tx_cur,
+                'commission_currency': tx.commission_currency or tx.from_currency or tx_cur,
                 'date': tx_date, 'type': 'exc', 'label': 'Exchange',
                 'symbol': f"{tx.from_currency}→{tx.to_currency}" if tx.from_currency and tx.to_currency else (tx.symbol or '—'),
                 'price': None, 'quantity': None,
@@ -457,7 +458,7 @@ def portfolio_detail_view(request, pk):
         qty = float(div.quantity) if div.quantity else None
         div_per_share = round(float(div.amount) / qty, 4) if qty else None
         ledger.append({
-            'tx_id': None, 'currency': '',
+            'tx_id': None, 'currency': '', 'commission_currency': '',
             'date': effective_date, 'type': 'div', 'label': 'Dividend',
             'symbol': div.symbol,
             'price': div_per_share, 'quantity': qty,
@@ -1046,6 +1047,7 @@ def portfolio_combined_view(request):
                 ledger.append({
                     'portfolio_name': portfolio.name,
                     'currency': tx.from_currency or tx_cur,
+                    'commission_currency': tx.commission_currency or tx.from_currency or tx_cur,
                     'date':       tx_date,
                     'type':       'exc',
                     'label':      'Exchange',
@@ -1061,6 +1063,7 @@ def portfolio_combined_view(request):
                 ledger.append({
                     'portfolio_name': portfolio.name,
                     'currency': tx_cur,
+                    'commission_currency': tx_cur,
                     'date':       tx_date,
                     'type':       tx_type.lower(),
                     'label':      TYPE_LABELS.get(tx_type, tx_type),
@@ -1079,7 +1082,7 @@ def portfolio_combined_view(request):
             div_per_share  = round(float(div.amount) / qty_d, 4) if qty_d else None
             ledger.append({
                 'portfolio_name': portfolio.name,
-                'currency': '',
+                'currency': '', 'commission_currency': '',
                 'date':       effective_date,
                 'type':       'div',
                 'label':      'Dividend',
