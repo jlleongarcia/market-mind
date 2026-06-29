@@ -499,10 +499,13 @@ class StockDataFetcher:
                 except Exception as e:
                     logger.warning(f"Could not calculate FCF payout ratio for {symbol}: {str(e)}")
             
-            # Dividend yield - yfinance returns as decimal (0.0262 = 2.62%)
+            # Annual dividend per share — direct dollar amount, no unit ambiguity
+            div_rate = info.get('dividendRate')
+            metrics['dividend_rate'] = div_rate if div_rate else None
+
+            # Dividend yield stored as percentage for Chowder number (yield + 5y growth)
             div_yield = info.get('dividendYield')
             if div_yield is not None:
-                # If value is between 0 and 1, it's a decimal that needs conversion
                 metrics['dividend_yield'] = div_yield * 100 if 0 < div_yield <= 1 else div_yield
             else:
                 metrics['dividend_yield'] = None

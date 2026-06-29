@@ -596,7 +596,12 @@ class PortfolioCalculationService:
 
         if metrics:
             position_data['pays_dividend'] = metrics.pays_dividend
-            position_data['current_yield'] = float(metrics.dividend_yield) if metrics.dividend_yield else None
+            if metrics.dividend_rate and position_data['current_price']:
+                position_data['current_yield'] = round(
+                    (float(metrics.dividend_rate) / position_data['current_price']) * 100, 2
+                )
+            else:
+                position_data['current_yield'] = None
             position_data['trailing_pe'] = float(metrics.trailing_pe) if metrics.trailing_pe else None
             position_data['forward_pe'] = float(metrics.forward_pe) if metrics.forward_pe else None
             position_data['payout_ratio'] = float(metrics.payout_ratio) if metrics.payout_ratio else None

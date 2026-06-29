@@ -114,19 +114,20 @@ class Portfolio(models.Model):
     
     @property
     def weighted_dividend_yield(self):
-        """Calculate portfolio-wide weighted dividend yield"""
+        """Portfolio-wide weighted current yield: sum(annual_div) / sum(current_value) * 100"""
         total_value = 0
-        weighted_yield_sum = 0
-        
+        total_annual_div = 0
+
         for position in self.positions.all():
             metrics = position.get_current_metrics()
-            if metrics and metrics.pays_dividend and metrics.dividend_yield:
-                position_value = float(position.current_value)
-                total_value += position_value
-                weighted_yield_sum += position_value * float(metrics.dividend_yield)
-        
+            if metrics and metrics.pays_dividend and metrics.dividend_rate and position.current_value:
+                pos_value = float(position.current_value)
+                annual_div = float(metrics.dividend_rate) * float(position.quantity)
+                total_value     += pos_value
+                total_annual_div += annual_div
+
         if total_value > 0:
-            return round(weighted_yield_sum / total_value, 2)
+            return round((total_annual_div / total_value) * 100, 2)
         return 0
 
 
@@ -302,38 +303,23 @@ class Position(models.Model):
     
     @property
     def yield_on_cost(self):
-        """Calculate Yield on Cost (YoC) - current dividend income vs. original investment"""
+        """Yield on Cost: (annual dividend income / total acquisition cost) * 100"""
         metrics = self.get_current_metrics()
-        if not metrics or not metrics.pays_dividend or not metrics.dividend_yield:
+        if not metrics or not metrics.pays_dividend or not metrics.dividend_rate:
             return None
-        
-        # Get current stock price (use current_price if available, else average_cost)
-        current_stock_price = float(self.current_price) if self.current_price else float(self.average_cost)
-        
-        # Calculate annual dividend per share
-        annual_dividend_per_share = (float(metrics.dividend_yield) / 100) * current_stock_price
-        
-        # Calculate total annual dividend income
-        total_annual_dividend = annual_dividend_per_share * float(self.quantity)
-        
-        # Calculate YoC: (Annual Dividend Income / Total Cost) * 100
-        if float(self.total_cost) > 0:
-            yoc = (total_annual_dividend / float(self.total_cost)) * 100
-            return round(yoc, 2)
+        annual_income = float(metrics.dividend_rate) * float(self.quantity)
+        total_cost    = float(self.total_cost)
+        if total_cost > 0:
+            return round((annual_income / total_cost) * 100, 2)
         return None
-    
+
     @property
     def annual_dividend_income(self):
-        """Estimated annual dividend income from this position"""
+        """Estimated annual dividend income: dividend_rate ($/share/year) × shares held"""
         metrics = self.get_current_metrics()
-        if not metrics or not metrics.pays_dividend or not metrics.dividend_yield:
+        if not metrics or not metrics.pays_dividend or not metrics.dividend_rate:
             return None
-        
-        current_stock_price = float(self.current_price) if self.current_price else float(self.average_cost)
-        annual_dividend_per_share = (float(metrics.dividend_yield) / 100) * current_stock_price
-        total_annual_dividend = annual_dividend_per_share * float(self.quantity)
-        
-        return round(total_annual_dividend, 2)
+        return round(float(metrics.dividend_rate) * float(self.quantity), 2)
 
 
 class Dividend(models.Model):

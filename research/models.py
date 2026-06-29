@@ -104,6 +104,8 @@ class FinancialMetrics(models.Model):
     forward_pe = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     payout_ratio = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     fcf_payout_ratio = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    dividend_rate = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True,
+        help_text="Annual dividend per share in the stock's native currency (e.g. 3.32 for MSFT)")
     dividend_yield = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     dividend_growth_1y = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
     dividend_growth_5y = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
@@ -130,6 +132,7 @@ class FinancialMetrics(models.Model):
         if not self.pays_dividend:
             return False
         return all([
+            self.dividend_rate is not None,
             self.dividend_yield is not None,
             self.dividend_growth_1y is not None,
             self.dividend_growth_5y is not None,
