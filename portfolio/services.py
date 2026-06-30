@@ -894,6 +894,7 @@ class PortfolioCalculationService:
 
         def _refresh(symbol):
             fetcher.save_dividends(symbol)
+            fetcher.save_financial_metrics(symbol)   # also updates dividend_rate
             return symbol
 
         with ThreadPoolExecutor(max_workers=5) as pool:
