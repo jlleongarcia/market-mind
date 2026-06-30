@@ -164,6 +164,7 @@
                 <th>Company</th>
                 <th class="text-right">P/E</th>
                 <th class="text-right">Payout%</th>
+                <th class="text-right">Div Growth 5Y</th>
                 <th class="text-right">Beta</th>
                 <th class="text-right">52W High</th>
                 <th class="text-right">52W Low</th>
@@ -178,6 +179,11 @@
                 </td>
                 <td class="text-right">
                     {% if pos.payout_ratio %}{{ pos.payout_ratio|floatformat:1 }}%{% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
+                <td class="text-right">
+                    {% if pos.dividend_growth_5y %}
+                        {% if pos.dividend_growth_5y >= 0 %}+{% endif %}{{ pos.dividend_growth_5y|floatformat:2 }}%
+                    {% else %}<span class="text-muted">—</span>{% endif %}
                 </td>
                 <td class="text-right">
                     {% if pos.beta %}{{ pos.beta|floatformat:2 }}{% else %}<span class="text-muted">—</span>{% endif %}
