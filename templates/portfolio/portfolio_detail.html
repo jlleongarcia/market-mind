@@ -278,7 +278,10 @@
             <td class="ledger-expand-cell">
                 {% if entry.extra %}<span class="ledger-chevron">›</span>{% endif %}
             </td>
-            <td class="text-sm text-muted">{{ entry.date|date:"d/m/Y" }}</td>
+            <td class="text-sm text-muted">
+                {{ entry.date|date:"d/m/Y" }}
+                {% if entry.date_estimated %}<span title="Pay date unknown — showing ex-dividend date" style="color:#f59e0b;font-size:0.7rem;margin-left:3px;">ex</span>{% endif %}
+            </td>
             <td><span class="tx-badge {{ entry.type }}">{{ entry.label }}</span></td>
             <td class="font-bold">{{ entry.symbol }}</td>
             <td class="text-right text-sm">

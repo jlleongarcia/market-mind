@@ -454,12 +454,15 @@ def portfolio_detail_view(request, pk):
             })
 
     for div in portfolio.dividends.all():
+        pay_date_known = bool(div.payment_date)
         effective_date = div.payment_date or div.ex_dividend_date
         qty = float(div.quantity) if div.quantity else None
         div_per_share = round(float(div.amount) / qty, 4) if qty else None
         ledger.append({
             'tx_id': None, 'currency': '', 'commission_currency': '',
-            'date': effective_date, 'type': 'div', 'label': 'Dividend',
+            'date': effective_date,
+            'date_estimated': not pay_date_known,   # True → showing ex-date as fallback
+            'type': 'div', 'label': 'Dividend',
             'symbol': div.symbol,
             'price': div_per_share, 'quantity': qty,
             'commission': 0, 'total': float(div.amount),
@@ -1077,6 +1080,7 @@ def portfolio_combined_view(request):
                 })
 
         for div in portfolio.dividends.all():
+            pay_date_known = bool(div.payment_date)
             effective_date = div.payment_date or div.ex_dividend_date
             qty_d          = float(div.quantity) if div.quantity else None
             div_per_share  = round(float(div.amount) / qty_d, 4) if qty_d else None
@@ -1084,6 +1088,7 @@ def portfolio_combined_view(request):
                 'portfolio_name': portfolio.name,
                 'currency': '', 'commission_currency': '',
                 'date':       effective_date,
+                'date_estimated': not pay_date_known,
                 'type':       'div',
                 'label':      'Dividend',
                 'symbol':     div.symbol,

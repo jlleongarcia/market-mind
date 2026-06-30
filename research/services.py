@@ -272,15 +272,49 @@ class StockDataFetcher:
         return (created_count, updated_count)
     
     @transaction.atomic
+    def _fetch_payment_date_map(self, symbol: str) -> dict:
+        """
+        Build a {ex_date: pay_date} map from yfinance calendar / info.
+
+        yfinance exposes upcoming payment dates but not full historical ones,
+        so this covers the critical boundary case (e.g. Dec ex-date / Jan pay-date).
+        On each sync the map is re-fetched, so records gain a pay-date as soon
+        as Yahoo Finance publishes it.
+        """
+        from datetime import datetime as dt
+        payment_map = {}
+        try:
+            ticker = yf.Ticker(symbol.upper())
+
+            # ticker.calendar: dict with 'Ex-Dividend Date' and 'Dividend Date'
+            cal = ticker.calendar
+            if isinstance(cal, dict):
+                ex_d  = cal.get('Ex-Dividend Date')
+                pay_d = cal.get('Dividend Date')
+                if ex_d is not None and pay_d is not None:
+                    ex_obj  = ex_d.date()  if hasattr(ex_d,  'date') else ex_d
+                    pay_obj = pay_d.date() if hasattr(pay_d, 'date') else pay_d
+                    payment_map[ex_obj] = pay_obj
+
+            # ticker.info: 'exDividendDate' + 'dividendDate' (Unix timestamps)
+            info = ticker.info
+            ex_ts  = info.get('exDividendDate')
+            pay_ts = info.get('dividendDate')
+            if ex_ts and pay_ts:
+                ex_obj  = dt.utcfromtimestamp(ex_ts).date()
+                pay_obj = dt.utcfromtimestamp(pay_ts).date()
+                payment_map.setdefault(ex_obj, pay_obj)  # calendar wins if already present
+
+        except Exception as e:
+            logger.warning(f"Could not fetch payment date map for {symbol}: {e}")
+        return payment_map
+
     def save_dividends(self, symbol: str) -> int:
         """
-        Fetch and save dividend history to database
-        
-        Args:
-            symbol: Stock ticker symbol
-            
-        Returns:
-            Number of dividend records created
+        Fetch and save dividend history to database.
+
+        Stores payment_date (actual cash receipt date) where yfinance provides it
+        so the portfolio can attribute dividends to the correct tax year.
         """
         # Ensure stock exists
         stock = Stock.objects.filter(symbol=symbol.upper()).first()
@@ -288,31 +322,38 @@ class StockDataFetcher:
             stock = self.save_stock_info(symbol)
             if not stock:
                 return 0
-        
-        # Fetch dividends
+
+        # Fetch dividends (ex-date → amount)
         dividends = self.fetch_dividends(symbol)
         if dividends is None:
             return 0
-        
+
+        # Build ex_date → pay_date map from calendar / info
+        payment_map = self._fetch_payment_date_map(symbol)
+
         created_count = 0
-        
+
         for date, amount in dividends.items():
             try:
-                date_obj = date.date() if hasattr(date, 'date') else date
-                
-                _, created = Dividend.objects.get_or_create(
+                date_obj    = date.date() if hasattr(date, 'date') else date
+                pay_date    = payment_map.get(date_obj)
+
+                _, created = Dividend.objects.update_or_create(
                     stock=stock,
                     date=date_obj,
-                    defaults={'amount': Decimal(str(amount))}
+                    defaults={
+                        'amount':       Decimal(str(amount)),
+                        'payment_date': pay_date,   # None for historical records without data
+                    }
                 )
-                
+
                 if created:
                     created_count += 1
-                    
+
             except Exception as e:
                 logger.error(f"Error saving dividend for {symbol} on {date}: {str(e)}")
                 continue
-        
+
         logger.info(f"Saved {created_count} dividend records for {symbol}")
         return created_count
     
