@@ -503,15 +503,24 @@ class StockDataFetcher:
             div_rate = info.get('dividendRate')
             metrics['dividend_rate'] = div_rate if div_rate else None
 
-            # Dividend yield stored as percentage for Chowder number (yield + 5y growth)
+            # Correct yield derived from dividend_rate / price (avoids yfinance % format ambiguity)
+            current_price = info.get('currentPrice') or info.get('regularMarketPrice')
+            if div_rate and current_price and current_price > 0:
+                metrics['_yield_pct'] = (div_rate / current_price) * 100
+            else:
+                metrics['_yield_pct'] = None
+
+            # dividend_yield kept for display/backward compatibility only
             div_yield = info.get('dividendYield')
             if div_yield is not None:
                 metrics['dividend_yield'] = div_yield * 100 if 0 < div_yield <= 1 else div_yield
             else:
                 metrics['dividend_yield'] = None
-            
-            # Convert to Decimal for database storage
-            for key, value in metrics.items():
+
+            # Convert to Decimal for database storage — skip transient _ keys
+            for key, value in list(metrics.items()):
+                if key.startswith('_'):
+                    continue
                 if value is not None:
                     try:
                         metrics[key] = Decimal(str(round(value, 2)))
@@ -556,17 +565,18 @@ class StockDataFetcher:
                 return False
             
             pays_dividend = metrics.pop('pays_dividend', False)
-            
+            yield_pct     = metrics.pop('_yield_pct', None)   # transient — not a DB column
+
             # Calculate dividend growth if stock pays dividends
             if pays_dividend:
                 growth_data = self.calculate_dividend_growth(symbol)
                 metrics['dividend_growth_1y'] = growth_data['growth_1y']
                 metrics['dividend_growth_5y'] = growth_data['growth_5y']
-                
-                # Calculate Chowder Number: Dividend Yield + 5Y Growth
-                if metrics.get('dividend_yield') and metrics.get('dividend_growth_5y'):
-                    chowder = metrics['dividend_yield'] + metrics['dividend_growth_5y']
-                    metrics['chowder_number'] = Decimal(str(round(float(chowder), 2)))
+
+                # Chowder = correct_yield + 5Y dividend growth rate
+                if yield_pct and metrics.get('dividend_growth_5y'):
+                    chowder = yield_pct + float(metrics['dividend_growth_5y'])
+                    metrics['chowder_number'] = Decimal(str(round(chowder, 2)))
                 else:
                     metrics['chowder_number'] = None
             else:

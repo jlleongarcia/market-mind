@@ -587,11 +587,11 @@ def transaction_create_view(request, portfolio_id):
             if tx_type == 'EXC':
                 tx_currency = to_currency or from_currency
             elif tx_type in STOCK_TYPES:
-                tx_currency = stock_currency
+                tx_currency = request.POST.get('transaction_currency', '').strip().upper() or stock_currency
             elif tx_type in {'DEP', 'WIT'}:
                 tx_currency = request.POST.get('dep_wit_currency', '').strip().upper() or portfolio.native_currency
             else:
-                # INT: user may specify via transaction_currency field or leave blank
+                # INT
                 tx_currency = request.POST.get('transaction_currency', '').strip().upper() or portfolio.native_currency
 
             # ── FX rate resolution ───────────────────────────────────────────
@@ -794,7 +794,7 @@ def transaction_edit_view(request, portfolio_id, tx_id):
                 from_currency = request.POST.get('from_currency', '').strip().upper()
                 tx_currency   = to_currency or from_currency
             elif tx_type in STOCK_TYPES:
-                tx_currency = stock_currency
+                tx_currency = request.POST.get('transaction_currency', '').strip().upper() or stock_currency
             elif tx_type in {'DEP', 'WIT'}:
                 tx_currency = request.POST.get('dep_wit_currency', '').strip().upper() or portfolio.native_currency
             else:

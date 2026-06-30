@@ -113,9 +113,11 @@
                 <!-- ── EXC-specific fields ───────────────────────────────────── -->
                 <div class="form-group" id="fieldFromCurrency" style="display:none;">
                     <label class="form-label" for="from_currency">From Currency <span class="required">*</span></label>
-                    <input type="text" id="from_currency" name="from_currency" class="form-control"
-                           placeholder="e.g. EUR" maxlength="10" style="text-transform:uppercase;"
-                           value="{{ post.from_currency|default:'' }}">
+                    <select id="from_currency" name="from_currency" class="form-control">
+                        {% for code, label in currency_choices %}
+                        <option value="{{ code }}" {% if post.from_currency == code %}selected{% elif not post.from_currency and code == portfolio.native_currency %}selected{% endif %}>{{ code }} — {{ label }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
 
                 <div class="form-group" id="fieldFromAmount" style="display:none;">
@@ -127,9 +129,11 @@
 
                 <div class="form-group" id="fieldToCurrency" style="display:none;">
                     <label class="form-label" for="to_currency">To Currency <span class="required">*</span></label>
-                    <input type="text" id="to_currency" name="to_currency" class="form-control"
-                           placeholder="e.g. USD" maxlength="10" style="text-transform:uppercase;"
-                           value="{{ post.to_currency|default:'' }}">
+                    <select id="to_currency" name="to_currency" class="form-control">
+                        {% for code, label in currency_choices %}
+                        <option value="{{ code }}" {% if post.to_currency == code %}selected{% elif not post.to_currency and code == 'USD' %}selected{% endif %}>{{ code }} — {{ label }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
 
                 <div class="form-group" id="fieldToAmount" style="display:none;">
@@ -141,18 +145,21 @@
 
                 <div class="form-group" id="fieldCommissionCurrency" style="display:none;">
                     <label class="form-label" for="commission_currency">Commission Currency</label>
-                    <input type="text" id="commission_currency" name="commission_currency" class="form-control"
-                           placeholder="e.g. USD" maxlength="10" style="text-transform:uppercase;"
-                           value="{{ post.commission_currency|default:'' }}">
+                    <select id="commission_currency" name="commission_currency" class="form-control">
+                        {% for code, label in currency_choices %}
+                        <option value="{{ code }}" {% if post.commission_currency == code %}selected{% elif not post.commission_currency and code == portfolio.native_currency %}selected{% endif %}>{{ code }} — {{ label }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
 
-                <!-- ── INT currency field ─────────────────────────────────────── -->
+                <!-- ── Transaction currency (BUY/SELL/DIV/INT) ───────────────── -->
                 <div class="form-group" id="fieldTxCurrency" style="display:none;">
-                    <label class="form-label" for="transaction_currency">Interest Currency</label>
-                    <input type="text" id="transaction_currency" name="transaction_currency" class="form-control"
-                           placeholder="e.g. USD" maxlength="10" style="text-transform:uppercase;"
-                           value="{{ post.transaction_currency|default:'' }}">
-                    <p class="form-hint">Currency in which interest was paid (leave blank if same as portfolio)</p>
+                    <label class="form-label" for="transaction_currency">Currency</label>
+                    <select id="transaction_currency" name="transaction_currency" class="form-control">
+                        {% for code, label in currency_choices %}
+                        <option value="{{ code }}" {% if post.transaction_currency == code %}selected{% elif not post.transaction_currency and code == 'USD' %}selected{% endif %}>{{ code }} — {{ label }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
 
                 <!-- ── FX Rate section (hidden for DEP/WIT/SPOF) ──────────── -->
@@ -216,14 +223,14 @@
 const NATIVE_CURRENCY = '{{ portfolio.native_currency }}';
 
 const TYPE_CONFIG = {
-    BUY:  { symbolVisible: true,  symbolRequired: true,  symbolHint: 'Stock is fetched automatically if not in the database', sharesVisible: true,  priceVisible: true,  priceLabel: 'Price per Share',   commVisible: true,  brokerVisible: true,  totalVisible: true,  fxVisible: true,  excVisible: false, intCurVisible: false, depWitCurVisible: false },
-    SELL: { symbolVisible: true,  symbolRequired: true,  symbolHint: 'Stock is fetched automatically if not in the database', sharesVisible: true,  priceVisible: true,  priceLabel: 'Price per Share',   commVisible: true,  brokerVisible: true,  totalVisible: true,  fxVisible: true,  excVisible: false, intCurVisible: false, depWitCurVisible: false },
-    DIV:  { symbolVisible: true,  symbolRequired: true,  symbolHint: 'Ticker that paid the dividend',                         sharesVisible: true,  priceVisible: true,  priceLabel: 'Dividend per Share', commVisible: false, brokerVisible: false, totalVisible: true,  fxVisible: true,  excVisible: false, intCurVisible: false, depWitCurVisible: false },
-    SPOF: { symbolVisible: true,  symbolRequired: true,  symbolHint: 'New ticker received in the spin-off',                   sharesVisible: true,  priceVisible: true,  priceLabel: 'Price per Share',   commVisible: false, brokerVisible: false, totalVisible: true,  fxVisible: false, excVisible: false, intCurVisible: false, depWitCurVisible: false },
-    INT:  { symbolVisible: false, symbolRequired: false, symbolHint: '',                                                       sharesVisible: false, priceVisible: true,  priceLabel: 'Amount',            commVisible: false, brokerVisible: false, totalVisible: false, fxVisible: true,  excVisible: false, intCurVisible: true,  depWitCurVisible: false },
-    DEP:  { symbolVisible: false, symbolRequired: false, symbolHint: '',                                                       sharesVisible: false, priceVisible: true,  priceLabel: 'Amount',            commVisible: false, brokerVisible: false, totalVisible: false, fxVisible: false, excVisible: false, intCurVisible: false, depWitCurVisible: true  },
-    WIT:  { symbolVisible: false, symbolRequired: false, symbolHint: '',                                                       sharesVisible: false, priceVisible: true,  priceLabel: 'Amount',            commVisible: false, brokerVisible: false, totalVisible: false, fxVisible: false, excVisible: false, intCurVisible: false, depWitCurVisible: true  },
-    EXC:  { symbolVisible: false, symbolRequired: false, symbolHint: '',                                                       sharesVisible: false, priceVisible: false, priceLabel: 'Exchange Rate',     commVisible: true,  brokerVisible: false, totalVisible: false, fxVisible: false, excVisible: true,  intCurVisible: false, depWitCurVisible: false },
+    BUY:  { symbolVisible: true,  symbolRequired: true,  symbolHint: 'Stock is fetched automatically if not in the database', sharesVisible: true,  priceVisible: true,  priceLabel: 'Price per Share',   commVisible: true,  brokerVisible: true,  totalVisible: true,  fxVisible: true,  excVisible: false, txCurVisible: true,  depWitCurVisible: false },
+    SELL: { symbolVisible: true,  symbolRequired: true,  symbolHint: 'Stock is fetched automatically if not in the database', sharesVisible: true,  priceVisible: true,  priceLabel: 'Price per Share',   commVisible: true,  brokerVisible: true,  totalVisible: true,  fxVisible: true,  excVisible: false, txCurVisible: true,  depWitCurVisible: false },
+    DIV:  { symbolVisible: true,  symbolRequired: true,  symbolHint: 'Ticker that paid the dividend',                         sharesVisible: true,  priceVisible: true,  priceLabel: 'Dividend per Share', commVisible: false, brokerVisible: false, totalVisible: true,  fxVisible: true,  excVisible: false, txCurVisible: true,  depWitCurVisible: false },
+    SPOF: { symbolVisible: true,  symbolRequired: true,  symbolHint: 'New ticker received in the spin-off',                   sharesVisible: true,  priceVisible: true,  priceLabel: 'Price per Share',   commVisible: false, brokerVisible: false, totalVisible: true,  fxVisible: false, excVisible: false, txCurVisible: false, depWitCurVisible: false },
+    INT:  { symbolVisible: false, symbolRequired: false, symbolHint: '',                                                       sharesVisible: false, priceVisible: true,  priceLabel: 'Amount',            commVisible: false, brokerVisible: false, totalVisible: false, fxVisible: true,  excVisible: false, txCurVisible: true,  depWitCurVisible: false },
+    DEP:  { symbolVisible: false, symbolRequired: false, symbolHint: '',                                                       sharesVisible: false, priceVisible: true,  priceLabel: 'Amount',            commVisible: false, brokerVisible: false, totalVisible: false, fxVisible: false, excVisible: false, txCurVisible: false, depWitCurVisible: true  },
+    WIT:  { symbolVisible: false, symbolRequired: false, symbolHint: '',                                                       sharesVisible: false, priceVisible: true,  priceLabel: 'Amount',            commVisible: false, brokerVisible: false, totalVisible: false, fxVisible: false, excVisible: false, txCurVisible: false, depWitCurVisible: true  },
+    EXC:  { symbolVisible: false, symbolRequired: false, symbolHint: '',                                                       sharesVisible: false, priceVisible: false, priceLabel: 'Exchange Rate',     commVisible: true,  brokerVisible: false, totalVisible: false, fxVisible: false, excVisible: true,  txCurVisible: false, depWitCurVisible: false },
 };
 
 const ACTIVE_CLASSES = {
@@ -267,7 +274,7 @@ function setType(type) {
     ['fieldFromCurrency','fieldFromAmount','fieldToCurrency','fieldToAmount','fieldCommissionCurrency'].forEach(id => {
         show(id, cfg.excVisible);
     });
-    show('fieldTxCurrency', cfg.intCurVisible);
+    show('fieldTxCurrency', cfg.txCurVisible);
 
     updateFXLabel(type);
     updateTotal();
@@ -283,10 +290,8 @@ function updateFXLabel(type) {
     const fromEl = document.getElementById('fxFromCur');
     if (!fromEl) return;
     const symbolVal = document.getElementById('symbol').value.trim() || '?';
-    if (type === 'INT') {
+    if (['BUY','SELL','DIV','INT'].includes(type)) {
         fromEl.textContent = document.getElementById('transaction_currency').value || '?';
-    } else if (['BUY','SELL','DIV'].includes(type)) {
-        fromEl.textContent = symbolVal + ' currency';
     } else {
         fromEl.textContent = '?';
     }
@@ -349,10 +354,7 @@ document.getElementById('symbol').addEventListener('input', function(e) {
 });
 
 ['from_currency','to_currency','commission_currency'].forEach(id => {
-    document.getElementById(id).addEventListener('input', function(e) {
-        e.target.value = e.target.value.toUpperCase();
-        updateEXCRate();
-    });
+    document.getElementById(id).addEventListener('change', updateEXCRate);
 });
 
 ['quantity','price'].forEach(id => {
@@ -369,9 +371,8 @@ document.getElementById('commission').addEventListener('input', function() {
     document.getElementById(id).addEventListener('input', updateEXCRate);
 });
 
-document.getElementById('transaction_currency').addEventListener('input', function(e) {
-    e.target.value = e.target.value.toUpperCase();
-    updateFXLabel('INT');
+document.getElementById('transaction_currency').addEventListener('change', function() {
+    updateFXLabel(document.getElementById('txType').value);
 });
 
 // Init — restore type from server if fx_warning triggered a re-render
