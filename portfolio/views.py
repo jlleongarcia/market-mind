@@ -490,14 +490,14 @@ def portfolio_detail_view(request, pk):
             to_cur = tx.to_currency or ''
             from_amt = float(tx.from_amount) if tx.from_amount else 0.0
             to_amt = float(tx.to_amount) if tx.to_amount else 0.0
-            comm_cur = tx.commission_currency or from_cur
+            comm_cur = tx.commission_currency or from_cur or 'USD'
             chips = []
             if from_amt:
                 chips.append(f"Paid: {from_cur} {from_amt:,.2f}")
             if to_amt and to_cur:
                 chips.append(f"Received: {to_cur} {to_amt:,.2f}")
             if commission:
-                chips.append(f"Commission: {comm_cur} {commission:,.2f}")
+                chips.append(f"Commission ({comm_cur}): {commission:,.2f}")
             desc = f"Exchange {from_cur} → {to_cur}" if to_cur else f"Exchange {from_cur}"
             if to_amt and to_cur:
                 net_disp, net_cls = f"+{to_cur} {to_amt:,.2f}", 'positive'

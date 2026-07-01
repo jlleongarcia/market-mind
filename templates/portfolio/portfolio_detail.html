@@ -306,11 +306,11 @@
         <div class="yearly-header">
             <span class="yearly-year-num">{{ yr.year }}</span>
             <div class="yearly-native-metrics">
-                {% if yr.deposits %}<div class="yn-metric"><span class="yn-label">Deposits</span><span class="yn-val yn-pos">+{{ native_currency }}&nbsp;{{ yr.deposits|floatformat:0 }}</span></div>{% endif %}
-                {% if yr.invested %}<div class="yn-metric"><span class="yn-label">Invested</span><span class="yn-val yn-neg">-{{ native_currency }}&nbsp;{{ yr.invested|floatformat:0 }}</span></div>{% endif %}
-                {% if yr.sold %}<div class="yn-metric"><span class="yn-label">Sold</span><span class="yn-val yn-pos">+{{ native_currency }}&nbsp;{{ yr.sold|floatformat:0 }}</span></div>{% endif %}
-                {% if yr.passive_income %}<div class="yn-metric"><span class="yn-label">Passive Income</span><span class="yn-val yn-pos">+{{ native_currency }}&nbsp;{{ yr.passive_income|floatformat:0 }}</span></div>{% endif %}
-                {% if yr.withdrawals %}<div class="yn-metric"><span class="yn-label">Withdrawn</span><span class="yn-val yn-neg">-{{ native_currency }}&nbsp;{{ yr.withdrawals|floatformat:0 }}</span></div>{% endif %}
+                {% if yr.deposits %}<div class="yn-metric"><span class="yn-label">Deposits</span><span class="yn-val yn-pos">+{{ native_currency }}&nbsp;{{ yr.deposits|floatformat:2 }}</span></div>{% endif %}
+                {% if yr.invested %}<div class="yn-metric"><span class="yn-label">Invested</span><span class="yn-val yn-neg">-{{ native_currency }}&nbsp;{{ yr.invested|floatformat:2 }}</span></div>{% endif %}
+                {% if yr.sold %}<div class="yn-metric"><span class="yn-label">Sold</span><span class="yn-val yn-pos">+{{ native_currency }}&nbsp;{{ yr.sold|floatformat:2 }}</span></div>{% endif %}
+                {% if yr.passive_income %}<div class="yn-metric"><span class="yn-label">Passive Income</span><span class="yn-val yn-pos">+{{ native_currency }}&nbsp;{{ yr.passive_income|floatformat:2 }}</span></div>{% endif %}
+                {% if yr.withdrawals %}<div class="yn-metric"><span class="yn-label">Withdrawn</span><span class="yn-val yn-neg">-{{ native_currency }}&nbsp;{{ yr.withdrawals|floatformat:2 }}</span></div>{% endif %}
             </div>
         </div>
         {% if yr.by_currency %}
@@ -319,11 +319,11 @@
             <div class="yearly-cur-row">
                 <span class="yearly-cur-badge">{{ cr.currency }}</span>
                 <span class="yearly-cur-items">
-                    {% if cr.deposits %}<span class="yc-item"><span class="yc-label">dep</span><span class="yc-val yn-pos">+{{ cr.currency }}&nbsp;{{ cr.deposits|floatformat:0 }}</span></span>{% endif %}
-                    {% if cr.invested %}<span class="yc-item"><span class="yc-label">inv</span><span class="yc-val yn-neg">-{{ cr.currency }}&nbsp;{{ cr.invested|floatformat:0 }}</span></span>{% endif %}
-                    {% if cr.sold %}<span class="yc-item"><span class="yc-label">sold</span><span class="yc-val yn-pos">+{{ cr.currency }}&nbsp;{{ cr.sold|floatformat:0 }}</span></span>{% endif %}
-                    {% if cr.passive_income %}<span class="yc-item"><span class="yc-label">income</span><span class="yc-val yn-pos">+{{ cr.currency }}&nbsp;{{ cr.passive_income|floatformat:0 }}</span></span>{% endif %}
-                    {% if cr.withdrawals %}<span class="yc-item"><span class="yc-label">wit</span><span class="yc-val yn-neg">-{{ cr.currency }}&nbsp;{{ cr.withdrawals|floatformat:0 }}</span></span>{% endif %}
+                    {% if cr.deposits %}<span class="yc-item"><span class="yc-label">dep</span><span class="yc-val yn-pos">+{{ cr.currency }}&nbsp;{{ cr.deposits|floatformat:2 }}</span></span>{% endif %}
+                    {% if cr.invested %}<span class="yc-item"><span class="yc-label">inv</span><span class="yc-val yn-neg">-{{ cr.currency }}&nbsp;{{ cr.invested|floatformat:2 }}</span></span>{% endif %}
+                    {% if cr.sold %}<span class="yc-item"><span class="yc-label">sold</span><span class="yc-val yn-pos">+{{ cr.currency }}&nbsp;{{ cr.sold|floatformat:2 }}</span></span>{% endif %}
+                    {% if cr.passive_income %}<span class="yc-item"><span class="yc-label">income</span><span class="yc-val yn-pos">+{{ cr.currency }}&nbsp;{{ cr.passive_income|floatformat:2 }}</span></span>{% endif %}
+                    {% if cr.withdrawals %}<span class="yc-item"><span class="yc-label">wit</span><span class="yc-val yn-neg">-{{ cr.currency }}&nbsp;{{ cr.withdrawals|floatformat:2 }}</span></span>{% endif %}
                 </span>
             </div>
             {% endfor %}
