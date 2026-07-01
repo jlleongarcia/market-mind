@@ -361,7 +361,6 @@ def portfolio_detail_view(request, pk):
     summary = PortfolioCalculationService.calculate_portfolio_summary(portfolio)
 
     # Build unified chronological ledger (transactions + dividend receipts)
-    position_avg = {p['symbol']: p['average_cost'] for p in summary['positions']}
     ledger = []
 
     def _fmt_cur(cur, amount):
@@ -375,6 +374,38 @@ def portfolio_detail_view(request, pk):
     def _net_display(net_class, cur, amount):
         sign = '+' if net_class == 'positive' else ('-' if net_class == 'negative' else '')
         return sign + _fmt_cur(cur, amount)
+
+    # Forward pass: compute the running average cost per symbol at the exact moment
+    # of each SELL, so P&L chips reflect the true cost basis at sale time rather than
+    # the current position average (which changes after subsequent buys).
+    _run_qty: dict = {}   # symbol → running total shares
+    _run_cost: dict = {}  # symbol → running total cost (price*qty + commission)
+    _avg_at_sell: dict = {}  # tx.id → avg_cost per share at time of that sell
+
+    for tx in portfolio.transactions.order_by('transaction_date', 'id'):
+        sym = tx.symbol
+        qty_f = float(tx.quantity)
+        price_f = float(tx.price)
+        comm_f = float(tx.commission)
+        if tx.transaction_type == 'BUY':
+            prev_qty = _run_qty.get(sym, 0.0)
+            prev_cost = _run_cost.get(sym, 0.0)
+            new_qty = prev_qty + qty_f
+            _run_qty[sym] = new_qty
+            _run_cost[sym] = prev_cost + qty_f * price_f + comm_f
+        elif tx.transaction_type == 'SPOF':
+            prev_qty = _run_qty.get(sym, 0.0)
+            prev_cost = _run_cost.get(sym, 0.0)
+            new_qty = prev_qty + qty_f
+            _run_qty[sym] = new_qty
+            _run_cost[sym] = prev_cost + qty_f * price_f
+        elif tx.transaction_type == 'SELL':
+            cur_qty = _run_qty.get(sym, 0.0)
+            cur_cost = _run_cost.get(sym, 0.0)
+            _avg_at_sell[tx.id] = (cur_cost / cur_qty) if cur_qty > 0 else None
+            remaining = max(0.0, cur_qty - qty_f)
+            _run_qty[sym] = remaining
+            _run_cost[sym] = remaining * (_avg_at_sell[tx.id] or 0.0)
 
     for tx in portfolio.transactions.order_by('-transaction_date'):
         qty = float(tx.quantity)
@@ -398,14 +429,16 @@ def portfolio_detail_view(request, pk):
                 'extra': '||'.join(chips),
             })
         elif tx.transaction_type == 'SELL':
-            avg = position_avg.get(tx.symbol)
+            avg = _avg_at_sell.get(tx.id)
             pnl = round((price - avg) * qty - commission, 2) if avg else None
             chips = [f"Qty: {_fmt_qty(qty)}", f"Price: {_fmt_cur(tx_cur, price)}"]
+            if avg:
+                chips.append(f"Avg Cost: {_fmt_cur(tx_cur, avg)}")
             if commission:
                 chips.append(f"Commission: {_fmt_cur(tx_cur, commission)}")
             if pnl is not None:
                 pnl_sign = '+' if pnl >= 0 else '-'
-                chips.append(f"P&L: {pnl_sign}{_fmt_cur(tx_cur, abs(pnl))}")
+                chips.append(f"Net P&L: {pnl_sign}{_fmt_cur(tx_cur, abs(pnl))}")
             ledger.append({
                 'tx_id': tx.id, 'date': tx_date,
                 'type': 'sell', 'label': 'Sell',
