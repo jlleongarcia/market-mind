@@ -136,6 +136,7 @@
                 <th class="text-right">YoC%</th>
                 <th class="text-right">Annual Passive Income</th>
                 <th class="text-right">Div Growth 1Y</th>
+                <th class="text-right">Div Growth 5Y</th>
                 <th class="text-right">Chowder #</th>
             </tr></thead>
             <tbody>
@@ -158,6 +159,11 @@
                 <td class="text-right">
                     {% if pos.dividend_growth_1y %}
                         {% if pos.dividend_growth_1y >= 0 %}+{% endif %}{{ pos.dividend_growth_1y|floatformat:2 }}%
+                    {% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
+                <td class="text-right">
+                    {% if pos.dividend_growth_5y %}
+                        {% if pos.dividend_growth_5y >= 0 %}+{% endif %}{{ pos.dividend_growth_5y|floatformat:2 }}%
                     {% else %}<span class="text-muted">—</span>{% endif %}
                 </td>
                 <td class="text-right font-bold">
