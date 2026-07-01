@@ -364,94 +364,152 @@ def portfolio_detail_view(request, pk):
     position_avg = {p['symbol']: p['average_cost'] for p in summary['positions']}
     ledger = []
 
+    def _fmt_cur(cur, amount):
+        if cur and cur != 'USD':
+            return f"{cur} {amount:,.2f}"
+        return f"${amount:,.2f}"
+
+    def _fmt_qty(qty):
+        return f"{int(qty):,}" if qty == int(qty) else f"{qty:,.4f}".rstrip('0').rstrip('.')
+
+    def _net_display(net_class, cur, amount):
+        sign = '+' if net_class == 'positive' else ('-' if net_class == 'negative' else '')
+        return sign + _fmt_cur(cur, amount)
+
     for tx in portfolio.transactions.order_by('-transaction_date'):
         qty = float(tx.quantity)
         price = float(tx.price)
         commission = float(tx.commission)
         tx_date = tx.transaction_date.date() if hasattr(tx.transaction_date, 'date') else tx.transaction_date
+        tx_cur = tx.transaction_currency or 'USD'
 
-        tx_cur = tx.transaction_currency or ''
         if tx.transaction_type == 'BUY':
+            chips = [f"Qty: {_fmt_qty(qty)}", f"Price: {_fmt_cur(tx_cur, price)}"]
+            if commission:
+                chips.append(f"Commission: {_fmt_cur(tx_cur, commission)}")
+            if tx.buy_yield:
+                chips.append(f"Buy Yield: {float(tx.buy_yield):.2f}%")
             ledger.append({
-                'tx_id': tx.id, 'currency': tx_cur, 'commission_currency': tx_cur,
-                'date': tx_date, 'type': 'buy', 'label': 'Buy',
-                'symbol': tx.symbol,
-                'price': price, 'quantity': qty,
-                'commission': commission,
-                'total': price * qty + commission,
-                'extra': f"{float(tx.buy_yield):.2f}%" if tx.buy_yield else None,
-                'extra_class': 'positive',
+                'tx_id': tx.id, 'date': tx_date,
+                'type': 'buy', 'label': 'Buy',
+                'description': f"Bought {_fmt_qty(qty)}× {tx.symbol} @ {_fmt_cur(tx_cur, price)}",
+                'net_display': _net_display('negative', tx_cur, price * qty + commission),
+                'net_class': 'negative',
+                'extra': '||'.join(chips),
             })
         elif tx.transaction_type == 'SELL':
             avg = position_avg.get(tx.symbol)
             pnl = round((price - avg) * qty - commission, 2) if avg else None
+            chips = [f"Qty: {_fmt_qty(qty)}", f"Price: {_fmt_cur(tx_cur, price)}"]
+            if commission:
+                chips.append(f"Commission: {_fmt_cur(tx_cur, commission)}")
+            if pnl is not None:
+                pnl_sign = '+' if pnl >= 0 else '-'
+                chips.append(f"P&L: {pnl_sign}{_fmt_cur(tx_cur, abs(pnl))}")
             ledger.append({
-                'tx_id': tx.id, 'currency': tx_cur, 'commission_currency': tx_cur,
-                'date': tx_date, 'type': 'sell', 'label': 'Sell',
-                'symbol': tx.symbol,
-                'price': price, 'quantity': qty,
-                'commission': commission,
-                'total': price * qty - commission,
-                'extra': f"${pnl:+,.2f}" if pnl is not None else None,
-                'extra_class': 'positive' if (pnl or 0) >= 0 else 'negative',
+                'tx_id': tx.id, 'date': tx_date,
+                'type': 'sell', 'label': 'Sell',
+                'description': f"Sold {_fmt_qty(qty)}× {tx.symbol} @ {_fmt_cur(tx_cur, price)}",
+                'net_display': _net_display('positive', tx_cur, price * qty - commission),
+                'net_class': 'positive',
+                'extra': '||'.join(chips),
             })
         elif tx.transaction_type == 'DIV':
+            chips = []
+            if qty:
+                chips.append(f"Shares: {_fmt_qty(qty)}")
+            if price:
+                chips.append(f"Per Share: {_fmt_cur(tx_cur, price)}")
+            if commission:
+                chips.append(f"Commission: {_fmt_cur(tx_cur, commission)}")
+            desc = f"Dividend — {tx.symbol}"
+            if qty:
+                desc += f" ({_fmt_qty(qty)} sh)"
             ledger.append({
-                'tx_id': tx.id, 'currency': tx_cur, 'commission_currency': tx_cur,
-                'date': tx_date, 'type': 'div', 'label': 'Dividend',
-                'symbol': tx.symbol,
-                'price': price, 'quantity': qty,
-                'commission': commission,
-                'total': price * qty - commission,
-                'extra': None, 'extra_class': None,
+                'tx_id': tx.id, 'date': tx_date,
+                'type': 'div', 'label': 'Dividend',
+                'description': desc,
+                'net_display': _net_display('positive', tx_cur, price * qty - commission),
+                'net_class': 'positive',
+                'extra': '||'.join(chips) if chips else None,
             })
         elif tx.transaction_type == 'SPOF':
+            chips = [f"Qty: {_fmt_qty(qty)}", f"Price: {_fmt_cur(tx_cur, price)}"]
             ledger.append({
-                'tx_id': tx.id, 'currency': tx_cur, 'commission_currency': tx_cur,
-                'date': tx_date, 'type': 'spof', 'label': 'Spin-Off',
-                'symbol': tx.symbol,
-                'price': price, 'quantity': qty,
-                'commission': 0, 'total': price * qty,
-                'extra': None, 'extra_class': None,
+                'tx_id': tx.id, 'date': tx_date,
+                'type': 'spof', 'label': 'Spin-Off',
+                'description': f"Spin-off — {tx.symbol}",
+                'net_display': _fmt_cur(tx_cur, price * qty),
+                'net_class': 'neutral',
+                'extra': '||'.join(chips),
             })
         elif tx.transaction_type == 'INT':
+            chips = []
+            if tx.broker:
+                chips.append(f"Broker: {tx.broker}")
+            if tx.notes:
+                chips.append(f"Notes: {tx.notes}")
             ledger.append({
-                'tx_id': tx.id, 'currency': tx_cur, 'commission_currency': tx_cur,
-                'date': tx_date, 'type': 'int', 'label': 'Interest',
-                'symbol': tx.transaction_currency or '—',
-                'price': None, 'quantity': None,
-                'commission': 0, 'total': price,
-                'extra': None, 'extra_class': None,
+                'tx_id': tx.id, 'date': tx_date,
+                'type': 'int', 'label': 'Interest',
+                'description': "Interest earned",
+                'net_display': _net_display('positive', tx_cur, price),
+                'net_class': 'positive',
+                'extra': '||'.join(chips) if chips else None,
             })
         elif tx.transaction_type == 'DEP':
+            chips = []
+            if tx.broker:
+                chips.append(f"Broker: {tx.broker}")
+            if tx.notes:
+                chips.append(f"Notes: {tx.notes}")
             ledger.append({
-                'tx_id': tx.id, 'currency': tx_cur, 'commission_currency': tx_cur,
-                'date': tx_date, 'type': 'dep', 'label': 'Deposit',
-                'symbol': tx.transaction_currency or '—',
-                'price': None, 'quantity': None,
-                'commission': 0, 'total': price,
-                'extra': None, 'extra_class': None,
+                'tx_id': tx.id, 'date': tx_date,
+                'type': 'dep', 'label': 'Deposit',
+                'description': "Cash deposit",
+                'net_display': _net_display('positive', tx_cur, price),
+                'net_class': 'positive',
+                'extra': '||'.join(chips) if chips else None,
             })
         elif tx.transaction_type == 'WIT':
+            chips = []
+            if tx.broker:
+                chips.append(f"Broker: {tx.broker}")
+            if tx.notes:
+                chips.append(f"Notes: {tx.notes}")
             ledger.append({
-                'tx_id': tx.id, 'currency': tx_cur, 'commission_currency': tx_cur,
-                'date': tx_date, 'type': 'wit', 'label': 'Withdrawal',
-                'symbol': tx.transaction_currency or '—',
-                'price': None, 'quantity': None,
-                'commission': 0, 'total': price,
-                'extra': None, 'extra_class': None,
+                'tx_id': tx.id, 'date': tx_date,
+                'type': 'wit', 'label': 'Withdrawal',
+                'description': "Cash withdrawal",
+                'net_display': _net_display('negative', tx_cur, price),
+                'net_class': 'negative',
+                'extra': '||'.join(chips) if chips else None,
             })
         elif tx.transaction_type == 'EXC':
+            from_cur = tx.from_currency or tx_cur
+            to_cur = tx.to_currency or ''
+            from_amt = float(tx.from_amount) if tx.from_amount else 0.0
+            to_amt = float(tx.to_amount) if tx.to_amount else 0.0
+            comm_cur = tx.commission_currency or from_cur
+            chips = []
+            if from_amt:
+                chips.append(f"Paid: {from_cur} {from_amt:,.2f}")
+            if to_amt and to_cur:
+                chips.append(f"Received: {to_cur} {to_amt:,.2f}")
+            if commission:
+                chips.append(f"Commission: {comm_cur} {commission:,.2f}")
+            desc = f"Exchange {from_cur} → {to_cur}" if to_cur else f"Exchange {from_cur}"
+            if to_amt and to_cur:
+                net_disp, net_cls = f"+{to_cur} {to_amt:,.2f}", 'positive'
+            else:
+                net_disp, net_cls = f"{from_cur} {from_amt:,.2f}", 'neutral'
             ledger.append({
-                'tx_id': tx.id, 'currency': tx.from_currency or tx_cur,
-                'commission_currency': tx.commission_currency or tx.from_currency or tx_cur,
-                'date': tx_date, 'type': 'exc', 'label': 'Exchange',
-                'symbol': f"{tx.from_currency}→{tx.to_currency}" if tx.from_currency and tx.to_currency else (tx.symbol or '—'),
-                'price': None, 'quantity': None,
-                'commission': commission,
-                'total': float(tx.from_amount) if tx.from_amount else 0,
-                'extra': f"{float(tx.to_amount):,.2f} {tx.to_currency}" if tx.to_amount and tx.to_currency else None,
-                'extra_class': 'positive',
+                'tx_id': tx.id, 'date': tx_date,
+                'type': 'exc', 'label': 'Exchange',
+                'description': desc,
+                'net_display': net_disp,
+                'net_class': net_cls,
+                'extra': '||'.join(chips) if chips else None,
             })
 
     for div in portfolio.dividends.all():
@@ -459,15 +517,23 @@ def portfolio_detail_view(request, pk):
         effective_date = div.payment_date or div.ex_dividend_date
         qty = float(div.quantity) if div.quantity else None
         div_per_share = round(float(div.amount) / qty, 4) if qty else None
+        chips = []
+        if qty:
+            chips.append(f"Shares: {_fmt_qty(qty)}")
+        if div_per_share:
+            chips.append(f"Per Share: {div_per_share:.4f}")
+        desc = f"Dividend — {div.symbol}"
+        if qty:
+            desc += f" ({_fmt_qty(qty)} sh)"
         ledger.append({
-            'tx_id': None, 'currency': '', 'commission_currency': '',
+            'tx_id': None,
             'date': effective_date,
-            'date_estimated': not pay_date_known,   # True → showing ex-date as fallback
+            'date_estimated': not pay_date_known,
             'type': 'div', 'label': 'Dividend',
-            'symbol': div.symbol,
-            'price': div_per_share, 'quantity': qty,
-            'commission': 0, 'total': float(div.amount),
-            'extra': None, 'extra_class': None,
+            'description': desc,
+            'net_display': f"+${float(div.amount):,.2f}",
+            'net_class': 'positive',
+            'extra': '||'.join(chips) if chips else None,
         })
 
     ledger.sort(key=lambda x: x['date'] or date_type.min, reverse=True)
@@ -506,50 +572,69 @@ def portfolio_detail_view(request, pk):
     ]
 
     # ── Yearly summary ────────────────────────────────────────────────────────
-    yearly: dict[int, dict] = defaultdict(lambda: {
-        'deposits': 0.0, 'withdrawals': 0.0, 'invested': 0.0,
-        'sold': 0.0, 'dividends': 0.0, 'interest': 0.0,
-    })
+    _zero = lambda: {'deposits': 0.0, 'withdrawals': 0.0, 'invested': 0.0,
+                     'sold': 0.0, 'dividends': 0.0, 'interest': 0.0}
+    yearly: dict[int, dict] = defaultdict(_zero)
+    # per-currency breakdown (raw amounts, no FX conversion)
+    yearly_by_cur: dict[int, dict] = defaultdict(lambda: defaultdict(_zero))
 
     for tx in portfolio.transactions.all():
         year = tx.transaction_date.year
+        cur  = tx.transaction_currency or portfolio.native_currency
         p = float(tx.price)
         q = float(tx.quantity)
         c = float(tx.commission)
-        # Use native_amount when available (already FX-converted)
+
         def _native(fallback: float) -> float:
             return float(tx.native_amount) if tx.native_amount else fallback
 
         if tx.transaction_type == 'DEP':
-            yearly[year]['deposits'] += _native(p)
+            yearly[year]['deposits']    += _native(p);  yearly_by_cur[year][cur]['deposits']    += p
         elif tx.transaction_type == 'WIT':
-            yearly[year]['withdrawals'] += _native(p)
+            yearly[year]['withdrawals'] += _native(p);  yearly_by_cur[year][cur]['withdrawals'] += p
         elif tx.transaction_type == 'INT':
-            yearly[year]['interest'] += _native(p)
+            yearly[year]['interest']    += _native(p);  yearly_by_cur[year][cur]['interest']    += p
         elif tx.transaction_type == 'BUY':
-            yearly[year]['invested'] += _native(p * q + c)
+            yearly[year]['invested']    += _native(p * q + c); yearly_by_cur[year][cur]['invested']    += (p * q + c)
         elif tx.transaction_type == 'SELL':
-            yearly[year]['sold'] += _native(p * q - c)
+            yearly[year]['sold']        += _native(p * q - c); yearly_by_cur[year][cur]['sold']        += (p * q - c)
         elif tx.transaction_type in ('DIV', 'SPOF'):
-            yearly[year]['dividends'] += _native(p * q - c)
+            yearly[year]['dividends']   += _native(p * q - c); yearly_by_cur[year][cur]['dividends']   += (p * q - c)
+        # EXC: currency swap, not counted in yearly summary
 
     for div in portfolio.dividends.all():
         year = (div.payment_date or div.ex_dividend_date).year
         yearly[year]['dividends'] += float(div.amount)
 
-    yearly_summary = [
-        {
-            'year': yr,
-            'deposits': round(d['deposits'], 2),
-            'withdrawals': round(d['withdrawals'], 2),
-            'invested': round(d['invested'], 2),
-            'sold': round(d['sold'], 2),
-            'dividends': round(d['dividends'], 2),
-            'interest': round(d['interest'], 2),
-            'net_cash': round(d['deposits'] - d['withdrawals'] + d['interest'], 2),
-        }
-        for yr, d in sorted(yearly.items(), reverse=True)
-    ]
+    yearly_summary = []
+    for yr, d in sorted(yearly.items(), reverse=True):
+        passive = d['dividends'] + d['interest']
+        by_cur = []
+        for cur, cd in sorted(yearly_by_cur.get(yr, {}).items()):
+            cp = cd['dividends'] + cd['interest']
+            if any(abs(v) >= 0.01 for v in cd.values()):
+                by_cur.append({
+                    'currency':      cur,
+                    'deposits':      round(cd['deposits'], 2),
+                    'withdrawals':   round(cd['withdrawals'], 2),
+                    'invested':      round(cd['invested'], 2),
+                    'sold':          round(cd['sold'], 2),
+                    'dividends':     round(cd['dividends'], 2),
+                    'interest':      round(cd['interest'], 2),
+                    'passive_income': round(cp, 2),
+                })
+        yearly_summary.append({
+            'year':           yr,
+            'deposits':       round(d['deposits'], 2),
+            'withdrawals':    round(d['withdrawals'], 2),
+            'invested':       round(d['invested'], 2),
+            'sold':           round(d['sold'], 2),
+            'dividends':      round(d['dividends'], 2),
+            'interest':       round(d['interest'], 2),
+            'passive_income': round(passive, 2),
+            'net_cash':       round(d['deposits'] - d['withdrawals'] + d['interest'], 2),
+            'by_currency':    by_cur,
+        })
 
     return render(request, 'portfolio/portfolio_detail.html', {
         'portfolio': portfolio,

@@ -9,7 +9,7 @@ from decimal import Decimal, InvalidOperation
 from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Max, Min, Sum, Q
-from research.models import FinancialMetrics, HistoricalPrice, Stock
+from research.models import Dividend as ResearchDividend, FinancialMetrics, HistoricalPrice, Stock
 from research.services import PriceCacheService
 
 logger = logging.getLogger(__name__)
@@ -592,6 +592,8 @@ class PortfolioCalculationService:
             'beta': None,
             'high_52w': float(pr['high_52w']) if pr.get('high_52w') else None,
             'low_52w': float(pr['low_52w']) if pr.get('low_52w') else None,
+            'vs_52w_high': round((display_price / float(pr['high_52w']) - 1) * 100, 1) if pr.get('high_52w') and float(pr['high_52w']) > 0 else None,
+            'range_52w_pct': round((display_price - float(pr['low_52w'])) / (float(pr['high_52w']) - float(pr['low_52w'])) * 100, 1) if pr.get('high_52w') and pr.get('low_52w') and float(pr['high_52w']) > float(pr['low_52w']) else None,
         }
 
         if metrics:
@@ -697,27 +699,55 @@ class PortfolioCalculationService:
     @staticmethod
     def fetch_and_store_buy_yield(transaction):
         """
-        Fetch current dividend yield and store as buy_yield for a BUY transaction
-        
-        Args:
-            transaction: Transaction instance
-            
-        Returns:
-            bool: True if yield was stored, False otherwise
+        Calculate and store buy_yield for a BUY transaction.
+
+        Formula: annualised TTM dividend per share / effective cost per share
+          - TTM dividend = sum of up to 4 most-recent ex-dividend dates strictly
+            before the buy date, annualised when fewer than 4 are available
+            (sum * 4 / count, assuming quarterly frequency).
+          - Effective cost per share = (price * quantity + commission) / quantity
+
+        Returns True if a yield was stored, False otherwise.
         """
         if transaction.transaction_type != 'BUY':
             return False
-        
+
         try:
-            metrics = FinancialMetrics.objects.get(stock__symbol=transaction.symbol)
-            if metrics.pays_dividend and metrics.dividend_yield:
-                transaction.buy_yield = metrics.dividend_yield
-                transaction.save(update_fields=['buy_yield'])
-                return True
-        except FinancialMetrics.DoesNotExist:
-            pass
-        
-        return False
+            buy_date = (
+                transaction.transaction_date.date()
+                if hasattr(transaction.transaction_date, 'date')
+                else transaction.transaction_date
+            )
+
+            last_div = (
+                ResearchDividend.objects
+                .filter(stock__symbol=transaction.symbol, date__lt=buy_date)
+                .order_by('-date')
+                .values_list('amount', flat=True)
+                .first()
+            )
+
+            if last_div is None:
+                return False
+
+            annualised_div = Decimal(str(last_div)) * 4
+
+            qty = Decimal(str(transaction.quantity))
+            price = Decimal(str(transaction.price))
+            commission = Decimal(str(transaction.commission))
+
+            cost_per_share = (price * qty + commission) / qty
+            if cost_per_share <= 0:
+                return False
+
+            buy_yield = (annualised_div / cost_per_share * 100).quantize(Decimal('0.01'))
+            transaction.buy_yield = buy_yield
+            transaction.save(update_fields=['buy_yield'])
+            return True
+
+        except Exception as e:
+            logger.warning(f"Could not calculate buy_yield for transaction {transaction.id}: {e}")
+            return False
     
     @staticmethod
     def calculate_dividend_income_history(portfolio, year=None):

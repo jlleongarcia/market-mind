@@ -1023,42 +1023,124 @@ textarea.form-control { resize: vertical; min-height: 90px; }
 .return-pill.negative { background: var(--negative-bg); color: #991b1b; }
 
 /* ============================================
-   Ledger row tints + legend
+   Activity feed
    ============================================ */
-.ledger-row-buy  td:nth-child(2) { border-left: 3px solid var(--positive); }
-.ledger-row-sell td:nth-child(2) { border-left: 3px solid var(--negative); }
-.ledger-row-div  td:nth-child(2) { border-left: 3px solid #22c55e; }
-.ledger-row-spof td:nth-child(2) { border-left: 3px solid #f59e0b; }
-.ledger-row-int  td:nth-child(2) { border-left: 3px solid #94a3b8; }
-.ledger-row-dep  td:nth-child(2) { border-left: 3px solid #7c3aed; }
-.ledger-row-wit  td:nth-child(2) { border-left: 3px solid #dc2626; }
-.ledger-row-exc  td:nth-child(2) { border-left: 3px solid #0284c7; }
-
-.ledger-expandable { cursor: pointer; }
-.ledger-expandable:hover td { background: #f8fafc; }
-.ledger-row-expanded td { background: #f1f5f9; }
-
-.ledger-expand-cell { width: 24px; padding: 0 4px !important; text-align: center; }
-.ledger-chevron { font-size: 1rem; color: var(--text-muted); line-height: 1; transition: transform 0.15s; }
-
-.ledger-detail-row td { padding: 0 !important; }
-.ledger-detail-cell {
+.activity-feed {
+    display: flex;
+    flex-direction: column;
+}
+.activity-item {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 8px 16px 8px 28px !important;
-    background: #f1f5f9;
-    border-bottom: 1px solid var(--border);
-    font-size: 0.8rem;
+    padding: 11px 16px;
+    border-bottom: 1px solid #f1f5f9;
+    border-left: 3px solid transparent;
+    transition: background 0.15s;
+    min-height: 48px;
+}
+.activity-item:last-child { border-bottom: none; }
+
+.activity-expandable { cursor: pointer; }
+.activity-expandable:hover { background: #f8fafc; }
+.activity-item-expanded { background: #f8fafc; }
+
+.activity-item-buy    { border-left-color: var(--positive); }
+.activity-item-sell   { border-left-color: var(--negative); }
+.activity-item-div    { border-left-color: #22c55e; }
+.activity-item-spof   { border-left-color: #f59e0b; }
+.activity-item-int    { border-left-color: #94a3b8; }
+.activity-item-dep    { border-left-color: #7c3aed; }
+.activity-item-wit    { border-left-color: #dc2626; }
+.activity-item-exc    { border-left-color: #0284c7; }
+
+.activity-date {
+    width: 76px;
+    flex-shrink: 0;
+    font-size: 0.78rem;
+    color: #94a3b8;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.3;
+}
+.activity-est {
+    display: block;
+    font-size: 0.65rem;
+    color: #f59e0b;
+    font-weight: 600;
+}
+.activity-desc {
+    flex: 1;
+    font-size: 0.88rem;
+    color: #334155;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.activity-amount {
+    font-weight: 700;
+    font-size: 0.88rem;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    min-width: 110px;
+    text-align: right;
+}
+.activity-amount.positive { color: var(--positive); }
+.activity-amount.negative { color: var(--negative); }
+.activity-amount.neutral  { color: #334155; }
+.activity-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+.activity-chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px; height: 28px;
+    border-radius: 8px;
+    background: #e2e8f0;
+    color: #64748b;
+    font-size: 0.65rem;
+    transition: transform 0.2s ease, background 0.2s, color 0.2s;
+    user-select: none;
+    flex-shrink: 0;
+}
+.activity-chevron-hidden { visibility: hidden; }
+.activity-item-expanded .activity-chevron {
+    background: var(--accent);
+    color: #fff;
+    transform: rotate(90deg);
+}
+.activity-detail {
+    background: #f8fafc;
+    border-bottom: 1px solid #f1f5f9;
+    padding: 8px 16px 8px 56px;
+}
+.activity-detail-inner {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.ledger-detail-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 20px;
+    padding: 3px 12px;
+    font-size: 0.78rem;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
 }
 .ledger-detail-label {
-    color: var(--text-muted);
+    color: #94a3b8;
     font-weight: 500;
-    min-width: 80px;
 }
 .ledger-detail-value {
-    color: var(--text-primary);
-    font-weight: 600;
+    color: #0f172a;
+    font-weight: 700;
 }
 
 .ledger-legend {
@@ -1066,6 +1148,104 @@ textarea.form-control { resize: vertical; min-height: 90px; }
     gap: 8px;
     flex-wrap: wrap;
     align-items: center;
+}
+
+/* ============================================
+   Yearly summary
+   ============================================ */
+.yearly-block {
+    padding: 14px 16px;
+}
+.yearly-block-sep {
+    border-bottom: 1px solid #f1f5f9;
+}
+.yearly-header {
+    display: flex;
+    align-items: baseline;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+.yearly-year-num {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #0f172a;
+    min-width: 40px;
+    flex-shrink: 0;
+}
+.yearly-native-metrics {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+}
+.yn-metric {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.yn-label {
+    font-size: 0.68rem;
+    color: #94a3b8;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.yn-val {
+    font-size: 0.9rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.yn-pos { color: var(--positive); }
+.yn-neg { color: var(--negative); }
+
+.yearly-cur-section {
+    margin-top: 10px;
+    padding-left: 60px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+.yearly-cur-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.yearly-cur-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 8px;
+    border-radius: 5px;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    min-width: 36px;
+    flex-shrink: 0;
+}
+.yearly-cur-items {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+.yc-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+}
+.yc-label {
+    font-size: 0.68rem;
+    color: #94a3b8;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.yc-val {
+    font-size: 0.82rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
 }
 
 /* ============================================
