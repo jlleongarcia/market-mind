@@ -3,6 +3,7 @@ Portfolio API Views
 Comprehensive views for portfolio management with financial metrics integration
 """
 import logging
+from collections import defaultdict
 from decimal import Decimal
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -471,10 +472,92 @@ def portfolio_detail_view(request, pk):
 
     ledger.sort(key=lambda x: x['date'] or date_type.min, reverse=True)
 
+    # ── Cash balances per currency ────────────────────────────────────────────
+    cash_by_currency: dict[str, float] = defaultdict(float)
+    for tx in portfolio.transactions.all():
+        cur = tx.transaction_currency or portfolio.native_currency
+        p = float(tx.price)
+        q = float(tx.quantity)
+        c = float(tx.commission)
+        if tx.transaction_type == 'DEP':
+            cash_by_currency[cur] += p
+        elif tx.transaction_type == 'WIT':
+            cash_by_currency[cur] -= p
+        elif tx.transaction_type == 'INT':
+            cash_by_currency[cur] += p
+        elif tx.transaction_type == 'BUY':
+            cash_by_currency[cur] -= (p * q + c)
+        elif tx.transaction_type == 'SELL':
+            cash_by_currency[cur] += (p * q - c)
+        elif tx.transaction_type == 'DIV':
+            cash_by_currency[cur] += (p * q - c)
+        elif tx.transaction_type == 'EXC':
+            from_cur = tx.from_currency or cur
+            to_cur = tx.to_currency or cur
+            comm_cur = tx.commission_currency or from_cur
+            cash_by_currency[from_cur] -= float(tx.from_amount) if tx.from_amount else 0
+            cash_by_currency[to_cur] += float(tx.to_amount) if tx.to_amount else 0
+            cash_by_currency[comm_cur] -= c
+
+    cash_balances = [
+        {'currency': cur, 'balance': round(bal, 2)}
+        for cur, bal in sorted(cash_by_currency.items())
+        if abs(bal) >= 0.01
+    ]
+
+    # ── Yearly summary ────────────────────────────────────────────────────────
+    yearly: dict[int, dict] = defaultdict(lambda: {
+        'deposits': 0.0, 'withdrawals': 0.0, 'invested': 0.0,
+        'sold': 0.0, 'dividends': 0.0, 'interest': 0.0,
+    })
+
+    for tx in portfolio.transactions.all():
+        year = tx.transaction_date.year
+        p = float(tx.price)
+        q = float(tx.quantity)
+        c = float(tx.commission)
+        # Use native_amount when available (already FX-converted)
+        def _native(fallback: float) -> float:
+            return float(tx.native_amount) if tx.native_amount else fallback
+
+        if tx.transaction_type == 'DEP':
+            yearly[year]['deposits'] += _native(p)
+        elif tx.transaction_type == 'WIT':
+            yearly[year]['withdrawals'] += _native(p)
+        elif tx.transaction_type == 'INT':
+            yearly[year]['interest'] += _native(p)
+        elif tx.transaction_type == 'BUY':
+            yearly[year]['invested'] += _native(p * q + c)
+        elif tx.transaction_type == 'SELL':
+            yearly[year]['sold'] += _native(p * q - c)
+        elif tx.transaction_type in ('DIV', 'SPOF'):
+            yearly[year]['dividends'] += _native(p * q - c)
+
+    for div in portfolio.dividends.all():
+        year = (div.payment_date or div.ex_dividend_date).year
+        yearly[year]['dividends'] += float(div.amount)
+
+    yearly_summary = [
+        {
+            'year': yr,
+            'deposits': round(d['deposits'], 2),
+            'withdrawals': round(d['withdrawals'], 2),
+            'invested': round(d['invested'], 2),
+            'sold': round(d['sold'], 2),
+            'dividends': round(d['dividends'], 2),
+            'interest': round(d['interest'], 2),
+            'net_cash': round(d['deposits'] - d['withdrawals'] + d['interest'], 2),
+        }
+        for yr, d in sorted(yearly.items(), reverse=True)
+    ]
+
     return render(request, 'portfolio/portfolio_detail.html', {
         'portfolio': portfolio,
         'summary': summary,
         'ledger': ledger,
+        'cash_balances': cash_balances,
+        'yearly_summary': yearly_summary,
+        'native_currency': portfolio.native_currency,
     })
 
 

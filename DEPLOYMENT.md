@@ -73,6 +73,45 @@ docker compose restart web
 
 ---
 
+## Alpha Vantage API Key (Dividend Features)
+
+MarketMind uses [Alpha Vantage](https://www.alphavantage.co/) as the primary source for dividend history. It provides the complete ex-dividend and payment-date record for each ticker, which is what drives:
+
+- **Dividend growth rates** (1Y and 5Y) shown in the portfolio Income and Fundamentals tabs
+- **Estimated payment dates** displayed in the transaction ledger
+- **Chowder Number** (dividend yield + 5Y growth rate)
+
+Without the key the app falls back to yfinance, which covers basic dividend amounts but has limited payment-date history and may produce less accurate growth calculations.
+
+### Getting a free key
+
+1. Go to [alphavantage.co/support/#api-key](https://www.alphavantage.co/support/#api-key) and request a free key.
+2. The free tier allows 25 API calls per day, which is sufficient for a personal portfolio of up to ~25 tickers per sync.
+3. Add the key to `.env`:
+
+```env
+ALPHA_VANTAGE_API_KEY=your_key_here
+```
+
+Then restart the web container:
+
+```bash
+docker compose restart web
+```
+
+### What degrades without the key
+
+| Feature | With Alpha Vantage | Without (yfinance fallback) |
+|---|---|---|
+| Dividend history | Full history with payment dates | Amounts only, no payment dates |
+| Payment date in ledger | Exact date | Estimated (ex-date used as proxy, marked `ex`) |
+| Div Growth 1Y / 5Y | Accurate CAGR from complete history | May be inaccurate or unavailable |
+| Chowder Number | Reliable | May be missing or wrong |
+
+> The free Alpha Vantage tier is rate-limited to 25 requests/day. If you have a large portfolio and hit the limit during a sync, the app automatically falls back to yfinance for the remaining tickers. Premium tiers remove this constraint.
+
+---
+
 ## FX Rate Service
 
 MarketMind uses a self-hosted [Frankfurter v2](https://github.com/hakanensari/frankfurter) instance for currency conversion. The service is queried at `GET /v2/rate/{from}/{to}?date=YYYY-MM-DD`.

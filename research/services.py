@@ -518,8 +518,14 @@ class StockDataFetcher:
             df = pd.DataFrame(list(dividends.values('date', 'amount')))
             df['date'] = pd.to_datetime(df['date'])
             df = df.set_index('date').sort_index()
-            
+
             now = datetime.now()
+            # Exclude future-dated dividends (Alpha Vantage includes declared but unpaid ones)
+            df = df[df.index <= pd.Timestamp(now.date())]
+
+            if len(df) < 2:
+                logger.info(f"Insufficient past dividend data for {symbol}")
+                return result
             
             # Calculate 1-year growth
             try:
