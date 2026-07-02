@@ -430,9 +430,9 @@ def portfolio_detail_view(request, pk):
             })
         elif tx.transaction_type == 'SELL':
             avg = _avg_at_sell.get(tx.id)
-            pnl = round((price - avg) * qty - commission, 2) if avg else None
+            pnl = round((price - avg) * qty - commission, 2) if avg is not None else None
             chips = [f"Qty: {_fmt_qty(qty)}", f"Price: {_fmt_cur(tx_cur, price)}"]
-            if avg:
+            if avg is not None:
                 chips.append(f"Avg Cost: {_fmt_cur(tx_cur, avg)}")
             if commission:
                 chips.append(f"Commission: {_fmt_cur(tx_cur, commission)}")
