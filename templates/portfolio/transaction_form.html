@@ -305,7 +305,9 @@ function updateTotal() {
     const qty   = parseFloat(document.getElementById('quantity').value) || 0;
     const price = parseFloat(document.getElementById('price').value) || 0;
     const comm  = cfg.commVisible ? (parseFloat(document.getElementById('commission').value) || 0) : 0;
-    const total = cfg.sharesVisible ? qty * price + comm : price;
+    // BUY: commission increases total cost; SELL: commission reduces net proceeds
+    const total = cfg.sharesVisible ? (type === 'SELL' ? qty * price - comm : qty * price + comm) : price;
+    document.getElementById('totalLabel').textContent = type === 'SELL' ? 'Estimated proceeds' : 'Estimated total';
     document.getElementById('totalPreview').textContent =
         total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
