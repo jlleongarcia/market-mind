@@ -10,15 +10,16 @@ BACKUP_DIR="$PROJECT_DIR/backups"
 RETENTION_DAYS=30
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_FILE="db_backup_$TIMESTAMP.sql"
-LOG_FILE="$BACKUP_DIR/backup.log"
 
 DOCKER="/usr/bin/docker"
 DB_CONTAINER="market-mind-db-1"
 
 mkdir -p "$BACKUP_DIR"
 
+# Writing to stdout only — the caller (crontab) redirects stdout/stderr to backup.log.
+# Run manually with `... | tee -a backups/backup.log` if you also want to see it live and logged.
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
 }
 
 log "Starting Market Mind backup..."
