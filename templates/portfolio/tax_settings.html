@@ -20,12 +20,12 @@
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:960px;" class="account-grid">
 
     <!-- Add / update a rule -->
-    <div class="card">
+    <div class="card" id="ruleFormCard">
         <div class="card-header">
-            <span class="card-title">Add / update a rule</span>
+            <span class="card-title" id="ruleFormTitle">Add / update a rule</span>
         </div>
         <div class="card-body">
-            <form method="post">
+            <form method="post" id="ruleForm">
                 {% csrf_token %}
 
                 <div class="form-group">
@@ -62,7 +62,10 @@
                     </p>
                 </div>
 
-                <button type="submit" class="btn btn-primary" style="width:100%;">Save rule</button>
+                <div style="display:flex;gap:8px;">
+                    <button type="submit" class="btn btn-primary" style="flex:1;">Save rule</button>
+                    <button type="button" id="cancelEditBtn" class="btn btn-secondary" style="display:none;">Cancel</button>
+                </div>
             </form>
         </div>
     </div>
@@ -94,12 +97,22 @@
                         </td>
                         <td>{{ rule.withholding_tax_rate }}%</td>
                         <td>
-                            <form method="post" onsubmit="return confirm('Delete this tax rule?');" style="margin:0;">
-                                {% csrf_token %}
-                                <input type="hidden" name="action" value="delete">
-                                <input type="hidden" name="rule_id" value="{{ rule.id }}">
-                                <button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:0.8rem;">Delete</button>
-                            </form>
+                            <div style="display:flex;gap:6px;">
+                                <button type="button" class="btn btn-secondary edit-rule-btn"
+                                        style="padding:4px 10px;font-size:0.8rem;"
+                                        data-symbol="{{ rule.symbol|default:'' }}"
+                                        data-country="{{ rule.country|default:'' }}"
+                                        data-entity-type="{{ rule.entity_type }}"
+                                        data-rate="{{ rule.withholding_tax_rate }}">
+                                    Edit
+                                </button>
+                                <form method="post" onsubmit="return confirm('Delete this tax rule?');" style="margin:0;">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="delete">
+                                    <input type="hidden" name="rule_id" value="{{ rule.id }}">
+                                    <button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:0.8rem;">Delete</button>
+                                </form>
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}
@@ -112,4 +125,38 @@
     </div>
 
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const countryField = document.getElementById('country');
+const entityField   = document.getElementById('entity_type');
+const symbolField   = document.getElementById('symbol');
+const rateField     = document.getElementById('withholding_tax_rate');
+const formTitle     = document.getElementById('ruleFormTitle');
+const cancelBtn     = document.getElementById('cancelEditBtn');
+
+document.querySelectorAll('.edit-rule-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        countryField.value = this.dataset.country;
+        entityField.value  = this.dataset.entityType;
+        symbolField.value  = this.dataset.symbol;
+        rateField.value    = this.dataset.rate;
+
+        formTitle.textContent = this.dataset.symbol
+            ? `Editing rule — ${this.dataset.symbol}`
+            : `Editing rule — ${this.dataset.country} / ${this.dataset.entityType}`;
+        cancelBtn.style.display = '';
+
+        document.getElementById('ruleFormCard').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        rateField.focus();
+    });
+});
+
+cancelBtn.addEventListener('click', function() {
+    document.getElementById('ruleForm').reset();
+    formTitle.textContent = 'Add / update a rule';
+    cancelBtn.style.display = 'none';
+});
+</script>
 {% endblock %}
