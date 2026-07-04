@@ -13,6 +13,7 @@ class Stock(models.Model):
     exchange = models.CharField(max_length=50, blank=True, null=True)
     currency = models.CharField(max_length=10, default='USD')
     country = models.CharField(max_length=50, blank=True, null=True)
+    is_etf = models.BooleanField(default=False)  # from yfinance quoteType — ETF distributions are summed rather than annualised from a single reference payment
 
     last_updated = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)

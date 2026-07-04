@@ -10,7 +10,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Max, Min, Sum, Q
 from research.models import Dividend as ResearchDividend, FinancialMetrics, HistoricalPrice, Stock
-from research.services import PriceCacheService
+from research.services import PriceCacheService, infer_dividend_frequency
 
 logger = logging.getLogger(__name__)
 
@@ -702,14 +702,27 @@ class PortfolioCalculationService:
         Calculate and store buy_yield for a BUY transaction.
 
         Formula: annualised dividend per share / effective cost per share
-          - Dividend per share = the amount of the dividend already declared as
-            of the buy date (latest declaration_date <= buy date), even if its
-            ex-dividend date is still ahead — this reflects the rate a new
-            buyer will actually start receiving. Falls back to the last
-            dividend with an ex-date strictly before the buy date when no
-            declaration_date data is available for the stock (older history).
-          - Annualised assuming quarterly frequency (amount * 4).
           - Effective cost per share = (price * quantity + commission) / quantity
+          - Payment frequency is inferred per stock from its actual dividend
+            history (research.services.infer_dividend_frequency) rather than
+            assumed quarterly — see DIVIDEND_AUTOMATION.md.
+          - ETFs (Stock.is_etf): dividend per share = sum of the last
+            `frequency` distributions known as of the buy date — "known"
+            uses the same declaration_date-preferred/ex_date-fallback rule
+            as regular stocks (a distribution already announced but not yet
+            gone ex still counts), just summed instead of taken as a single
+            reference, since ETF distributions vary payment-to-payment with
+            no stable "declared rate" to extrapolate from.
+          - Everything else: dividend per share = the amount already declared
+            as of the buy date (latest declaration_date <= buy date, even if
+            its ex-dividend date is still ahead — this reflects the rate a
+            new buyer will actually start receiving), falling back to the
+            last dividend with an ex-date strictly before the buy date when
+            no declaration_date data is available. If that reference amount
+            is more than 1.75x the median of the trailing 2x`frequency`
+            actual payments, it's treated as a special dividend and the
+            median is used instead (e.g. BHP's 2021 special dividend). This
+            reference amount is then annualised as amount * frequency.
 
         Returns True if a yield was stored, False otherwise.
         """
@@ -723,27 +736,61 @@ class PortfolioCalculationService:
                 else transaction.transaction_date
             )
 
-            reference_div = (
-                ResearchDividend.objects
-                .filter(stock__symbol=transaction.symbol, declaration_date__lte=buy_date)
-                .order_by('-declaration_date')
-                .values_list('amount', flat=True)
-                .first()
-            )
-
-            if reference_div is None:
-                reference_div = (
-                    ResearchDividend.objects
-                    .filter(stock__symbol=transaction.symbol, date__lt=buy_date)
-                    .order_by('-date')
-                    .values_list('amount', flat=True)
-                    .first()
-                )
-
-            if reference_div is None:
+            stock = Stock.objects.filter(symbol=transaction.symbol).first()
+            if stock is None:
                 return False
 
-            annualised_div = Decimal(str(reference_div)) * 4
+            frequency = infer_dividend_frequency(stock, as_of_date=buy_date)
+
+            if stock.is_etf:
+                amounts = list(
+                    ResearchDividend.objects
+                    .filter(stock=stock)
+                    .filter(
+                        Q(declaration_date__lte=buy_date)
+                        | Q(declaration_date__isnull=True, date__lt=buy_date)
+                    )
+                    .order_by('-date')
+                    .values_list('amount', flat=True)[:frequency]
+                )
+                if not amounts:
+                    return False
+                annualised_div = sum(Decimal(str(a)) for a in amounts)
+            else:
+                reference = (
+                    ResearchDividend.objects
+                    .filter(stock=stock, declaration_date__lte=buy_date)
+                    .order_by('-declaration_date')
+                    .first()
+                )
+                if reference is None:
+                    reference = (
+                        ResearchDividend.objects
+                        .filter(stock=stock, date__lt=buy_date)
+                        .order_by('-date')
+                        .first()
+                    )
+                if reference is None:
+                    return False
+
+                reference_amount = Decimal(str(reference.amount))
+                baseline = list(
+                    ResearchDividend.objects
+                    .filter(stock=stock, date__lt=reference.date)
+                    .order_by('-date')
+                    .values_list('amount', flat=True)[: 2 * frequency]
+                )
+                if len(baseline) >= 3:
+                    sorted_baseline = sorted(Decimal(str(a)) for a in baseline)
+                    n = len(sorted_baseline)
+                    median = (
+                        sorted_baseline[n // 2] if n % 2
+                        else (sorted_baseline[n // 2 - 1] + sorted_baseline[n // 2]) / 2
+                    )
+                    if median > 0 and reference_amount > median * Decimal('1.75'):
+                        reference_amount = median
+
+                annualised_div = reference_amount * frequency
 
             qty = Decimal(str(transaction.quantity))
             price = Decimal(str(transaction.price))

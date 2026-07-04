@@ -14,12 +14,33 @@ dividend yield a purchase locks in:
 ```
 buy_yield = annualised dividend per share / effective cost per share
 effective cost per share = (price × quantity + commission) / quantity
-annualised dividend per share = reference dividend amount × 4  (quarterly assumption)
 ```
 
-The part that matters is **which dividend counts as the reference**
-(`PortfolioCalculationService.fetch_and_store_buy_yield`,
-`portfolio/services.py`):
+Two things determine the annualised dividend: **payment frequency** (not
+everyone pays quarterly) and **which dividend counts as the reference**
+(`PortfolioCalculationService.fetch_and_store_buy_yield`, `portfolio/services.py`).
+
+### Payment frequency isn't always 4
+
+`research.services.infer_dividend_frequency(stock, as_of_date)` derives
+payments/year from the stock's *actual* history instead of assuming
+quarterly: it takes the median gap (in days) between consecutive ex-dividend
+dates over the trailing ~5 years and buckets it (≤45d → 12/yr, ≤135d → 4/yr,
+≤275d → 2/yr, else 1/yr). Median, not average or raw payment count, so a
+handful of special dividends — which insert extra, anomalously-short gaps —
+don't distort the true recurring cadence. Falls back to 4 when there's fewer
+than 2 dividends to compare.
+
+**Real bug this caught:** BHP is a genuine semi-annual payer. Before this
+fix, its `buy_yield` was computing at **24.18%** — nonsensical — because the
+code assumed quarterly (`× 4`) for every stock. `infer_dividend_frequency`
+correctly resolves it to 2/yr even though 2 of the last 8 years had a 3rd
+(special) payment thrown in, since the median of `[2,2,2,2,3,2,2,2]` is
+still 2.
+
+### Reference dividend — and the outlier guard
+
+For regular stocks (not ETFs, see below), the reference amount is:
 
 1. **Preferred** — the dividend with the latest `declaration_date <= buy_date`,
    regardless of whether its ex-dividend date has already passed. A dividend
@@ -30,7 +51,20 @@ The part that matters is **which dividend counts as the reference**
    last dividend with an ex-dividend date strictly before the buy date (the
    original, simpler rule).
 
-### Why this matters: the off-by-one-quarter bug
+That reference amount is then checked against the **median of the trailing
+2×frequency actual payments** (the stock's own recent "normal" range). If
+it's more than **1.75×** that median, it's treated as a special dividend and
+the median is used instead — a real dividend raise never jumps this much in
+one step (MO's raise was 1.04×, HON's would-be raise 1.05×), so this only
+catches genuine outliers. This is what fixes BHP fully: its reference
+dividend for a 2021-12-21 purchase was a **$3.5682** payment — itself a
+special-dividend-inflated outlier (~2.8× the stock's own recent median of
+~$1.28) — swapping in the median drops `buy_yield` from 24.18% to a sane
+**4.32%**.
+
+The annualised dividend per share is then `reference_amount × frequency`.
+
+### Why the declaration_date preference matters: the off-by-one-quarter bug
 
 The fallback rule alone under-counts recent buys. Example (verified against
 a real transaction): buying MO on 2023-09-13, one day before its
@@ -42,6 +76,43 @@ computes 8.36% instead of the correct 8.71%.
 
 Comparing against `declaration_date` fixes this: the $0.98 dividend was
 declared well before 9/13, so rule 1 picks it correctly.
+
+### ETFs are handled differently — no single reference dividend
+
+`Stock.is_etf` (from yfinance's `quoteType`, auto-populated whenever stock
+info is fetched/refreshed — no manual tagging) switches the whole approach.
+ETF distributions commonly vary payment-to-payment (underlying yield,
+turnover, capital gains components) with no board-declared "rate" to lock
+in — there's no single stable value to extrapolate from, outlier or not. So
+for ETFs, the annualised dividend is simply the **sum of the last
+`frequency` distributions known as of the buy date** — a trailing realised
+total rather than an extrapolation from any one payment.
+
+"Known as of the buy date" uses the *exact same* declaration_date-preferred/
+ex_date-fallback rule as regular stocks (a distribution already announced
+but not yet gone ex still counts) — only the single-value-vs-sum part
+differs between ETFs and equities. The data pipeline is identical too:
+`save_dividends` and `backfill_dividend_declaration_dates` are symbol-based
+with no ETF/equity branching at all, so ETFs get `declaration_date` and
+`declaration_date_checked` populated (or not) exactly the same way regular
+stocks do. As of this writing no ETF in the database has `declaration_date`
+populated yet (0/54 for IDUS.L, 0/39 for DGRW.L) — Alpha Vantage may simply
+not have been reached for these LSE-listed symbols yet (quota exhaustion),
+or may not cover them at all; the daily cron will settle which over time.
+
+### Dividend growth has the same frequency fix
+
+`StockDataFetcher.calculate_dividend_growth` (1Y/5Y growth shown on the
+research/position views) had the identical latent bug: it hardcoded "last 4
+dividends = 1 year" for the comparison windows. For a semi-annual payer like
+BHP, "last 4" actually spans ~2 years, so its "1Y growth" was quietly wrong
+too. Now uses `infer_dividend_frequency` in place of the hardcoded 4 for both
+the 1Y window (`last freq / previous freq`) and the 5Y CAGR base window.
+
+After changing this logic, existing values need a refresh — `manage.py
+update_financial_metrics --all` recomputes and stores it for every tracked
+stock; `manage.py recompute_buy_yields` does the equivalent for `buy_yield`
+on existing transactions. Both are safe to rerun any time.
 
 ---
 

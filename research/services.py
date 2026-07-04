@@ -17,6 +17,48 @@ from .models import Stock, HistoricalPrice, Dividend, StockSplit, FinancialMetri
 logger = logging.getLogger(__name__)
 
 
+def infer_dividend_frequency(stock: Stock, as_of_date: Optional[date] = None) -> int:
+    """
+    Infer how many dividends a stock pays per year from its actual payment
+    history, rather than assuming quarterly for everyone.
+
+    Uses the median gap (in days) between consecutive ex-dividend dates over
+    the trailing ~5 years of history — median rather than a raw average or
+    payment count so that a handful of special dividends (which insert extra,
+    anomalously-short gaps into the sequence) don't distort the stock's true
+    recurring cadence. E.g. BHP is a semi-annual payer that occasionally adds
+    a special dividend some years; the median gap still resolves to ~182
+    days (frequency 2) since only a couple of gaps out of many are affected.
+
+    Falls back to 4 (quarterly, the most common case) when there's fewer
+    than 2 dividends to compare, i.e. not enough history to infer anything.
+    """
+    dates_qs = Dividend.objects.filter(stock=stock)
+    if as_of_date is not None:
+        dates_qs = dates_qs.filter(date__lte=as_of_date)
+    dates = list(dates_qs.order_by('date').values_list('date', flat=True))
+
+    if len(dates) < 2:
+        return 4
+
+    cutoff = dates[-1] - timedelta(days=5 * 365)
+    recent = [d for d in dates if d >= cutoff]
+    if len(recent) < 2:
+        recent = dates[-2:]
+
+    gaps = sorted((recent[i + 1] - recent[i]).days for i in range(len(recent) - 1))
+    n = len(gaps)
+    median_gap = gaps[n // 2] if n % 2 else (gaps[n // 2 - 1] + gaps[n // 2]) / 2
+
+    if median_gap <= 45:
+        return 12
+    if median_gap <= 135:
+        return 4
+    if median_gap <= 275:
+        return 2
+    return 1
+
+
 class StockDataFetcher:
     """Service class for fetching stock data from yfinance and storing in database"""
     
@@ -63,6 +105,7 @@ class StockDataFetcher:
                         'exchange': exchange,
                         'currency': info.get('currency', 'USD'),
                         'country': info.get('country'),
+                        'is_etf': info.get('quoteType') == 'ETF',
                     }
             except Exception as info_error:
                 logger.warning(f"Could not fetch info for {symbol}, trying historical data: {info_error}")
@@ -541,16 +584,22 @@ class StockDataFetcher:
             if len(df) < 2:
                 logger.info(f"Insufficient past dividend data for {symbol}")
                 return result
-            
-            # 1Y growth: last 4 dividends / penultimate 4 dividends − 1
+
+            # Payments per year, inferred from actual history rather than
+            # assumed quarterly — a semi-annual or annual payer would
+            # otherwise have "1Y"/"5Y" windows that actually span several
+            # years' worth of payments.
+            freq = infer_dividend_frequency(stock)
+
+            # 1Y growth: last `freq` dividends / penultimate `freq` dividends − 1
             # Using positional slicing avoids time-window edge cases where an
-            # off-by-one quarter produces 5 recent vs 3 prior and inflates the result.
+            # off-by-one period produces more recent than prior and inflates the result.
             try:
-                if len(df) >= 8:
-                    recent_4   = float(df['amount'].iloc[-4:].sum())
-                    previous_4 = float(df['amount'].iloc[-8:-4].sum())
-                    if previous_4 > 0 and recent_4 > 0:
-                        growth_1y = (recent_4 / previous_4 - 1) * 100
+                if len(df) >= 2 * freq:
+                    recent   = float(df['amount'].iloc[-freq:].sum())
+                    previous = float(df['amount'].iloc[-2 * freq:-freq].sum())
+                    if previous > 0 and recent > 0:
+                        growth_1y = (recent / previous - 1) * 100
                         result['growth_1y'] = Decimal(str(round(growth_1y, 2)))
                         logger.info(f"1Y dividend growth for {symbol}: {result['growth_1y']}%")
                 else:
@@ -558,16 +607,16 @@ class StockDataFetcher:
             except Exception as e:
                 logger.warning(f"Could not calculate 1Y growth for {symbol}: {str(e)}")
 
-            # 5Y growth CAGR: last 4 dividends vs the 4 most recent dividends
-            # paid on or before 5 years ago, raised to the 1/5 power.
+            # 5Y growth CAGR: last `freq` dividends vs the `freq` most recent
+            # dividends paid on or before 5 years ago, raised to the 1/5 power.
             try:
                 five_years_ago = pd.Timestamp((now - timedelta(days=365 * 5)).date())
                 df_old = df[df.index <= five_years_ago]
-                if len(df_old) >= 4:
-                    recent_4  = float(df['amount'].iloc[-4:].sum())
-                    base_4    = float(df_old['amount'].iloc[-4:].sum())
-                    if base_4 > 0 and recent_4 > 0:
-                        cagr = ((recent_4 / base_4) ** (1 / 5) - 1) * 100
+                if len(df_old) >= freq:
+                    recent = float(df['amount'].iloc[-freq:].sum())
+                    base   = float(df_old['amount'].iloc[-freq:].sum())
+                    if base > 0 and recent > 0:
+                        cagr = ((recent / base) ** (1 / 5) - 1) * 100
                         result['growth_5y'] = Decimal(str(round(cagr, 2)))
                         logger.info(f"5Y dividend growth for {symbol}: {result['growth_5y']}%")
                 else:
