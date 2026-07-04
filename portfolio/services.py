@@ -701,10 +701,14 @@ class PortfolioCalculationService:
         """
         Calculate and store buy_yield for a BUY transaction.
 
-        Formula: annualised TTM dividend per share / effective cost per share
-          - TTM dividend = sum of up to 4 most-recent ex-dividend dates strictly
-            before the buy date, annualised when fewer than 4 are available
-            (sum * 4 / count, assuming quarterly frequency).
+        Formula: annualised dividend per share / effective cost per share
+          - Dividend per share = the amount of the dividend already declared as
+            of the buy date (latest declaration_date <= buy date), even if its
+            ex-dividend date is still ahead — this reflects the rate a new
+            buyer will actually start receiving. Falls back to the last
+            dividend with an ex-date strictly before the buy date when no
+            declaration_date data is available for the stock (older history).
+          - Annualised assuming quarterly frequency (amount * 4).
           - Effective cost per share = (price * quantity + commission) / quantity
 
         Returns True if a yield was stored, False otherwise.
@@ -719,18 +723,27 @@ class PortfolioCalculationService:
                 else transaction.transaction_date
             )
 
-            last_div = (
+            reference_div = (
                 ResearchDividend.objects
-                .filter(stock__symbol=transaction.symbol, date__lt=buy_date)
-                .order_by('-date')
+                .filter(stock__symbol=transaction.symbol, declaration_date__lte=buy_date)
+                .order_by('-declaration_date')
                 .values_list('amount', flat=True)
                 .first()
             )
 
-            if last_div is None:
+            if reference_div is None:
+                reference_div = (
+                    ResearchDividend.objects
+                    .filter(stock__symbol=transaction.symbol, date__lt=buy_date)
+                    .order_by('-date')
+                    .values_list('amount', flat=True)
+                    .first()
+                )
+
+            if reference_div is None:
                 return False
 
-            annualised_div = Decimal(str(last_div)) * 4
+            annualised_div = Decimal(str(reference_div)) * 4
 
             qty = Decimal(str(transaction.quantity))
             price = Decimal(str(transaction.price))
@@ -891,18 +904,28 @@ class PortfolioCalculationService:
     @staticmethod
     def auto_record_dividends(portfolio):
         """
-        Refresh research.Dividend data from yfinance for every position, then
-        create portfolio.Dividend records for dividends the user qualified for
-        (held shares at close of the day before the ex-dividend date).
+        Refresh research.Dividend data from yfinance for every symbol ever
+        transacted in this portfolio, then create portfolio.Dividend records
+        for dividends the user qualified for (held shares at close of the day
+        before the ex-dividend date).
+
+        Symbols are sourced from transaction history rather than open
+        positions, since a fully sold-out symbol still has no Position row
+        but may be entitled to a dividend that went ex-date before the sale.
 
         Returns a dict with counts of new records created and skipped duplicates.
         Idempotent — safe to call multiple times.
         """
         from research.models import Dividend as ResearchDividend
         from research.services import StockDataFetcher
-        from .models import Dividend as PortfolioDividend
+        from .models import Dividend as PortfolioDividend, Transaction
 
-        symbols = list(portfolio.positions.values_list('symbol', flat=True))
+        symbols = list(
+            Transaction.objects
+            .filter(portfolio=portfolio, transaction_type__in=['BUY', 'SELL', 'SPOF'])
+            .values_list('symbol', flat=True)
+            .distinct()
+        )
         if not symbols:
             return {'created': 0, 'skipped': 0}
 

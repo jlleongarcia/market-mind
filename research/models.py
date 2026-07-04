@@ -60,6 +60,7 @@ class Dividend(models.Model):
     stock = models.ForeignKey(Stock, on_delete=models.CASCADE, related_name='dividends')
     date = models.DateField(db_index=True)         # ex-dividend date (authoritative)
     payment_date = models.DateField(null=True, blank=True)  # actual payment date — null for historical records
+    declaration_date = models.DateField(null=True, blank=True)  # when the dividend was announced — null for historical records
     amount = models.DecimalField(max_digits=10, decimal_places=4, validators=[MinValueValidator(Decimal('0.0001'))])
 
     created_at = models.DateTimeField(auto_now_add=True)

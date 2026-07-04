@@ -358,29 +358,35 @@ class StockDataFetcher:
             created_count = 0
             for entry in av_data:
                 try:
-                    ex_date_str  = entry.get('ex_dividend_date', '')
-                    pay_date_str = entry.get('payment_date', '')
-                    amount_str   = entry.get('amount', '')
+                    ex_date_str   = entry.get('ex_dividend_date', '')
+                    pay_date_str  = entry.get('payment_date', '')
+                    decl_date_str = entry.get('declaration_date', '')
+                    amount_str    = entry.get('amount', '')
                     if not ex_date_str or not amount_str:
                         continue
 
                     ex_date  = date.fromisoformat(ex_date_str)
-                    # AV sends the string 'None' for records without a known payment date
-                    pay_date = date.fromisoformat(pay_date_str) if pay_date_str and pay_date_str != 'None' else None
+                    # AV sends the string 'None' for records without a known payment/declaration date
+                    pay_date  = date.fromisoformat(pay_date_str) if pay_date_str and pay_date_str != 'None' else None
+                    decl_date = date.fromisoformat(decl_date_str) if decl_date_str and decl_date_str != 'None' else None
 
                     defaults = {'amount': Decimal(str(amount_str))}
                     if pay_date is not None:
                         defaults['payment_date'] = pay_date
+                    if decl_date is not None:
+                        defaults['declaration_date'] = decl_date
 
                     obj, created = Dividend.objects.get_or_create(
                         stock=stock,
                         date=ex_date,
-                        defaults={**defaults, 'payment_date': pay_date},
+                        defaults={**defaults, 'payment_date': pay_date, 'declaration_date': decl_date},
                     )
                     if not created:
                         obj.amount = Decimal(str(amount_str))
                         if pay_date is not None:
                             obj.payment_date = pay_date
+                        if decl_date is not None:
+                            obj.declaration_date = decl_date
                         obj.save()
 
                     if created:
