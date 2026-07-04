@@ -3,9 +3,17 @@ Management command to backfill declaration_date on existing Dividend records
 from Alpha Vantage. Intended to run daily via cron (see Makefile setup-cron
 target) since Alpha Vantage's free tier caps out at 25 requests/day — each
 run only targets stocks that still have a row (since ~2020, Alpha Vantage's
-declaration_date coverage start) missing declaration_date, so it costs
-nothing once a stock is fully backfilled and safely catches up newly-added
-stocks whose data initially came from the yfinance fallback.
+declaration_date coverage start) that hasn't been checked yet, so it costs
+nothing once a row is either filled in or confirmed absent, and safely
+catches up newly-added stocks whose data initially came from the yfinance
+fallback.
+
+A row is "checked" (declaration_date_checked=True) once Alpha Vantage has
+genuinely responded for its exact ex-date — whether or not it had a
+declaration_date to give. Rows AV will never be able to fill (its own data
+gaps, distinct from rate-limit misses) stop being re-queried, freeing quota
+for stocks that can actually still be fixed — see save_dividends in
+research/services.py for where checked is set on ordinary syncs too.
 
 Update-only: never creates new Dividend rows and never touches amount /
 payment_date on existing ones — it only fills in declaration_date for rows
@@ -37,7 +45,7 @@ class Command(BaseCommand):
             '--symbols',
             nargs='+',
             type=str,
-            help='Specific stock symbols to backfill (optional, defaults to all stocks with a recent dividend row still missing declaration_date)',
+            help='Specific stock symbols to backfill (optional, defaults to all stocks with a recent dividend row not yet checked against Alpha Vantage)',
         )
         parser.add_argument(
             '--delay',
@@ -55,6 +63,7 @@ class Command(BaseCommand):
         else:
             stocks = Stock.objects.filter(
                 dividends__declaration_date__isnull=True,
+                dividends__declaration_date_checked=False,
                 dividends__date__gte=AV_DECLARATION_DATE_COVERAGE_START,
             ).distinct()
 
@@ -80,12 +89,22 @@ class Command(BaseCommand):
             for entry in av_data:
                 ex_date_str   = entry.get('ex_dividend_date', '')
                 decl_date_str = entry.get('declaration_date', '')
-                if not ex_date_str or not decl_date_str or decl_date_str == 'None':
+                if not ex_date_str:
                     continue
 
-                updated_here += Dividend.objects.filter(
-                    stock=stock, date=date.fromisoformat(ex_date_str), declaration_date__isnull=True,
-                ).update(declaration_date=date.fromisoformat(decl_date_str))
+                ex_date   = date.fromisoformat(ex_date_str)
+                decl_date = date.fromisoformat(decl_date_str) if decl_date_str and decl_date_str != 'None' else None
+
+                if decl_date is not None:
+                    updated_here += Dividend.objects.filter(
+                        stock=stock, date=ex_date, declaration_date__isnull=True,
+                    ).update(declaration_date=decl_date, declaration_date_checked=True)
+                elif ex_date < date.today():
+                    # AV answered but has no declaration_date for this dividend, and it's
+                    # already gone ex — a real, permanent gap, not "not announced yet".
+                    Dividend.objects.filter(
+                        stock=stock, date=ex_date, declaration_date_checked=False,
+                    ).update(declaration_date_checked=True)
 
             total_updated += updated_here
             self.stdout.write(self.style.SUCCESS(f"  ✓ {stock.symbol}: {updated_here} row(s) updated"))

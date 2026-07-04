@@ -369,6 +369,10 @@ class StockDataFetcher:
                     # AV sends the string 'None' for records without a known payment/declaration date
                     pay_date  = date.fromisoformat(pay_date_str) if pay_date_str and pay_date_str != 'None' else None
                     decl_date = date.fromisoformat(decl_date_str) if decl_date_str and decl_date_str != 'None' else None
+                    # AV has genuinely answered for this ex-date: either it gave us a
+                    # declaration_date, or the dividend has already gone ex so a missing
+                    # declaration_date means AV will never have one — not "not announced yet".
+                    decl_checked = decl_date is not None or ex_date < date.today()
 
                     defaults = {'amount': Decimal(str(amount_str))}
                     if pay_date is not None:
@@ -379,7 +383,10 @@ class StockDataFetcher:
                     obj, created = Dividend.objects.get_or_create(
                         stock=stock,
                         date=ex_date,
-                        defaults={**defaults, 'payment_date': pay_date, 'declaration_date': decl_date},
+                        defaults={
+                            **defaults, 'payment_date': pay_date, 'declaration_date': decl_date,
+                            'declaration_date_checked': decl_checked,
+                        },
                     )
                     if not created:
                         obj.amount = Decimal(str(amount_str))
@@ -387,6 +394,8 @@ class StockDataFetcher:
                             obj.payment_date = pay_date
                         if decl_date is not None:
                             obj.declaration_date = decl_date
+                        if decl_checked:
+                            obj.declaration_date_checked = True
                         obj.save()
 
                     if created:

@@ -61,6 +61,10 @@ class Dividend(models.Model):
     date = models.DateField(db_index=True)         # ex-dividend date (authoritative)
     payment_date = models.DateField(null=True, blank=True)  # actual payment date — null for historical records
     declaration_date = models.DateField(null=True, blank=True)  # when the dividend was announced — null for historical records
+    # True once Alpha Vantage has responded for this exact ex-date and confirmed it has no
+    # declaration_date to give (as opposed to declaration_date simply not having been fetched
+    # yet) — lets backfill stop re-querying rows AV will never be able to fill.
+    declaration_date_checked = models.BooleanField(default=False)
     amount = models.DecimalField(max_digits=10, decimal_places=4, validators=[MinValueValidator(Decimal('0.0001'))])
 
     created_at = models.DateTimeField(auto_now_add=True)

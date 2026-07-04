@@ -78,15 +78,27 @@ management commands close that gap automatically:
   `declaration_date` on existing `Dividend` rows, never creates new ones and
   never touches `amount`/`payment_date`. Only targets stocks with a dividend
   dated on/after a **fixed** `2020-01-01` boundary (Alpha Vantage's observed
-  `declaration_date` coverage start) still missing `declaration_date` —
-  older gaps are permanent (AV doesn't have that data) so they're excluded
-  to keep reruns cheap. This must be a fixed calendar date, not a rolling
-  window relative to "today": a rolling window would eventually push a
-  genuinely-recoverable row (e.g. the MO 2023-09-14 dividend above) out of
-  range purely because time passed, silently dropping it from future
-  retries even though Alpha Vantage could still supply it. Accepts
-  `--symbols SYM1 SYM2` to target specific stocks and `--delay N` to
-  throttle AV calls.
+  `declaration_date` coverage start) that's still missing `declaration_date`
+  **and** not yet `declaration_date_checked`. This must be a fixed calendar
+  date, not a rolling window relative to "today": a rolling window would
+  eventually push a genuinely-recoverable row (e.g. the MO 2023-09-14
+  dividend above) out of range purely because time passed, silently
+  dropping it from future retries even though Alpha Vantage could still
+  supply it. Accepts `--symbols SYM1 SYM2` to target specific stocks and
+  `--delay N` to throttle AV calls.
+
+  **`declaration_date_checked`** distinguishes "never verified against AV
+  yet" from "AV genuinely has nothing for this one" — set whenever AV
+  responds for an exact ex-date, whether or not it had a `declaration_date`
+  to give, *except* when the ex-date is still in the future (an
+  undeclared-but-upcoming dividend must keep being retried daily until it's
+  actually announced — that's the mechanism that fixes cases like MO).
+  Without this distinction, a stock with even one permanently-unrecoverable
+  gap (Alpha Vantage itself has occasional holes even within its covered
+  era — e.g. two of MSFT's own rows never got a `declaration_date` despite
+  a fully successful AV response) would resurface in the backlog every
+  single day forever, silently eating into the 25/day quota that a
+  brand-new stock might need.
 - **`recompute_buy_yields`** — reruns `fetch_and_store_buy_yield` for every
   BUY transaction, so any yield computed while data was still incomplete
   gets silently corrected once `declaration_date` shows up.
