@@ -1,6 +1,11 @@
 """
-One-off management command to backfill declaration_date on existing Dividend
-records from Alpha Vantage.
+Management command to backfill declaration_date on existing Dividend records
+from Alpha Vantage. Intended to run daily via cron (see Makefile setup-cron
+target) since Alpha Vantage's free tier caps out at 25 requests/day — each
+run only targets stocks that still have a row (since ~2020, Alpha Vantage's
+declaration_date coverage start) missing declaration_date, so it costs
+nothing once a stock is fully backfilled and safely catches up newly-added
+stocks whose data initially came from the yfinance fallback.
 
 Update-only: never creates new Dividend rows and never touches amount /
 payment_date on existing ones — it only fills in declaration_date for rows
@@ -14,6 +19,15 @@ from django.core.management.base import BaseCommand
 from research.models import Dividend, Stock
 from research.services import StockDataFetcher
 
+# Alpha Vantage's DIVIDENDS endpoint only carries declaration_date from
+# roughly this point onward — older rows will never get backfilled, so
+# excluding them keeps daily reruns from wasting quota. This must be a fixed
+# calendar date, not a rolling window relative to "today": a rolling window
+# would eventually push a genuinely-recoverable row (e.g. a 2023 dividend)
+# out of range simply because time passed, silently dropping it from future
+# retries even though Alpha Vantage could still supply it.
+AV_DECLARATION_DATE_COVERAGE_START = date(2020, 1, 1)
+
 
 class Command(BaseCommand):
     help = 'Backfill declaration_date on existing Dividend records from Alpha Vantage (update-only, no new rows)'
@@ -23,7 +37,7 @@ class Command(BaseCommand):
             '--symbols',
             nargs='+',
             type=str,
-            help='Specific stock symbols to backfill (optional, defaults to all stocks with dividend history)',
+            help='Specific stock symbols to backfill (optional, defaults to all stocks with a recent dividend row still missing declaration_date)',
         )
         parser.add_argument(
             '--delay',
@@ -39,7 +53,10 @@ class Command(BaseCommand):
         if symbols:
             stocks = Stock.objects.filter(symbol__in=[s.upper() for s in symbols])
         else:
-            stocks = Stock.objects.filter(dividends__isnull=False).distinct()
+            stocks = Stock.objects.filter(
+                dividends__declaration_date__isnull=True,
+                dividends__date__gte=AV_DECLARATION_DATE_COVERAGE_START,
+            ).distinct()
 
         stock_count = stocks.count()
         self.stdout.write(f"Backfilling declaration_date for {stock_count} stock(s)\n")

@@ -192,6 +192,18 @@ setup-cron:
 		echo "✅ Backup cron job registered (daily at 8:00 AM)"; \
 	fi
 
+# Register daily 8:30am cron job for dividend declaration_date backfill + buy_yield recompute (idempotent)
+setup-cron-dividends:
+	@SCRIPT="$$(pwd)/scripts/backfill_dividend_data.sh"; \
+	LOG="$$(pwd)/backups/dividend_backfill.log"; \
+	ENTRY="30 8 * * * $$SCRIPT >> $$LOG 2>&1"; \
+	if crontab -l 2>/dev/null | grep -qF "$$SCRIPT"; then \
+		echo "✅ Dividend backfill cron job already registered"; \
+	else \
+		(crontab -l 2>/dev/null; echo "# Market Mind - daily dividend declaration_date backfill (8:30 AM)"; echo "$$ENTRY") | crontab -; \
+		echo "✅ Dividend backfill cron job registered (daily at 8:30 AM)"; \
+	fi
+
 # Backup database
 backup:
 	@echo "💾 Creating database backup..."
