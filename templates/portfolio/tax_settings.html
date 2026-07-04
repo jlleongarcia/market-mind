@@ -1,0 +1,115 @@
+{% extends 'base.html' %}
+
+{% block title %}Tax Settings — Market Mind{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="breadcrumb">
+        <a href="{% url 'research:account_panel' %}">Account</a>
+        <span class="breadcrumb-sep">/</span>
+        <span>Tax Settings</span>
+    </div>
+    <h1 class="page-title">Tax Settings</h1>
+    <p class="page-subtitle">
+        Dividend withholding tax rules used to estimate origin-country tax on your
+        dividends. These are personal to your account — no other user sees or is
+        affected by them.
+    </p>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:960px;" class="account-grid">
+
+    <!-- Add / update a rule -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">Add / update a rule</span>
+        </div>
+        <div class="card-body">
+            <form method="post">
+                {% csrf_token %}
+
+                <div class="form-group">
+                    <label class="form-label" for="country">Country</label>
+                    <input type="text" id="country" name="country" class="form-control"
+                           placeholder="e.g. United States">
+                    <p class="form-hint">Must match the stock's country exactly (as shown on its research page).</p>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="entity_type">Entity type</label>
+                    <select id="entity_type" name="entity_type" class="form-control">
+                        {% for value, label in entity_types %}
+                        <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    <p class="form-hint">MLP/REIT are often taxed differently from regular corp dividends (e.g. US MLPs).</p>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="withholding_tax_rate">Withholding tax rate (%)</label>
+                    <input type="number" id="withholding_tax_rate" name="withholding_tax_rate" class="form-control"
+                           step="0.01" min="0" max="100" placeholder="e.g. 15.00" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="symbol">Or: override for one specific stock</label>
+                    <input type="text" id="symbol" name="symbol" class="form-control"
+                           placeholder="e.g. EPD (leave blank for a general country rule)"
+                           style="text-transform:uppercase;">
+                    <p class="form-hint">
+                        If set, this takes precedence over any general country rule for this
+                        stock only — country/entity type above are ignored.
+                    </p>
+                </div>
+
+                <button type="submit" class="btn btn-primary" style="width:100%;">Save rule</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Existing rules -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">Your rules</span>
+        </div>
+        <div class="card-body">
+            {% if rules %}
+            <table class="table" style="margin:0;">
+                <thead>
+                    <tr>
+                        <th>Applies to</th>
+                        <th>Rate</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for rule in rules %}
+                    <tr>
+                        <td>
+                            {% if rule.symbol %}
+                                <strong>{{ rule.symbol }}</strong> (stock-specific)
+                            {% else %}
+                                {{ rule.country }} — {{ rule.get_entity_type_display }}
+                            {% endif %}
+                        </td>
+                        <td>{{ rule.withholding_tax_rate }}%</td>
+                        <td>
+                            <form method="post" onsubmit="return confirm('Delete this tax rule?');" style="margin:0;">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="delete">
+                                <input type="hidden" name="rule_id" value="{{ rule.id }}">
+                                <button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:0.8rem;">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p style="color:var(--text-muted);">No tax rules set up yet — add one on the left.</p>
+            {% endif %}
+        </div>
+    </div>
+
+</div>
+{% endblock %}

@@ -150,6 +150,10 @@ class Transaction(models.Model):
     quantity = models.DecimalField(max_digits=15, decimal_places=4)
     price = models.DecimalField(max_digits=15, decimal_places=4)
     commission = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    tax = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0,
+        help_text="Tax withheld at source on this transaction (e.g. dividend/interest withholding tax)",
+    )
     transaction_date = models.DateTimeField()
     notes = models.TextField(blank=True)
     
@@ -328,6 +332,11 @@ class Dividend(models.Model):
     symbol = models.CharField(max_length=10)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     quantity = models.DecimalField(max_digits=15, decimal_places=4, null=True, blank=True)
+    tax = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0,
+        help_text="Expected withholding tax at source, computed from the portfolio owner's "
+                   "TaxWithholdingRule at creation time — always editable afterward.",
+    )
     payment_date = models.DateField(null=True, blank=True)
     ex_dividend_date = models.DateField(null=True, blank=True)
     notes = models.TextField(blank=True)
@@ -338,6 +347,63 @@ class Dividend(models.Model):
 
     def __str__(self):
         return f"{self.symbol} - ${self.amount} on {self.payment_date}"
+
+
+class TaxWithholdingRule(models.Model):
+    """
+    Per-user dividend withholding tax rule — how much origin-country tax this
+    user expects to have withheld on a stock's dividends. Never shared between
+    users: two users holding the same stock can have different rates (different
+    tax residency, treaty status, W-8BEN filing, etc).
+
+    A rule is either general (country + entity_type, symbol left blank) or a
+    stock-specific override (symbol set, country/entity_type ignored) — the
+    stock-specific rule always takes precedence when both exist for a user.
+
+    Uses a plain symbol CharField rather than a FK to research.Stock, matching
+    the loose-coupling convention already used by Transaction/Position/Dividend
+    in this app.
+    """
+    # Mirrors research.Stock.ENTITY_TYPES — duplicated rather than imported to
+    # keep this app's loose coupling to research consistent with the rest of
+    # the file (no other model here imports research.models).
+    ENTITY_TYPES = [
+        ('REGULAR', 'Regular'),
+        ('MLP', 'MLP'),
+        ('REIT', 'REIT'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='tax_withholding_rules')
+    country = models.CharField(max_length=50, blank=True, null=True)
+    entity_type = models.CharField(max_length=10, choices=ENTITY_TYPES, default='REGULAR')
+    symbol = models.CharField(
+        max_length=10, blank=True, null=True,
+        help_text="If set, overrides the country/entity_type rule for this specific stock only",
+    )
+    withholding_tax_rate = models.DecimalField(
+        max_digits=5, decimal_places=2,
+        help_text="Percentage withheld at source, e.g. 15.00 for 15%",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['country', 'entity_type']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'symbol'], condition=models.Q(symbol__isnull=False),
+                name='unique_user_symbol_tax_rule',
+            ),
+            models.UniqueConstraint(
+                fields=['user', 'country', 'entity_type'], condition=models.Q(symbol__isnull=True),
+                name='unique_user_country_entity_tax_rule',
+            ),
+        ]
+
+    def __str__(self):
+        if self.symbol:
+            return f"{self.user.username} — {self.symbol}: {self.withholding_tax_rate}%"
+        return f"{self.user.username} — {self.country}/{self.entity_type}: {self.withholding_tax_rate}%"
 
 
 class FXLot(models.Model):

@@ -173,7 +173,9 @@ class PortfolioTransactionsView(APIView):
             # Fetch and store buy yield if applicable
             if transaction.transaction_type == 'BUY':
                 PortfolioCalculationService.fetch_and_store_buy_yield(transaction)
-            
+            elif transaction.transaction_type == 'DIV':
+                PortfolioCalculationService.fetch_and_store_transaction_tax(transaction)
+
             # Include redirect URL in response
             response_data = serializer.data
             response_data['redirect_url'] = f'/portfolio/{portfolio.id}/'
@@ -224,7 +226,9 @@ class TransactionCreateView(APIView):
             # Fetch and store buy yield if applicable
             if transaction.transaction_type == 'BUY':
                 PortfolioCalculationService.fetch_and_store_buy_yield(transaction)
-            
+            elif transaction.transaction_type == 'DIV':
+                PortfolioCalculationService.fetch_and_store_transaction_tax(transaction)
+
             # Include redirect URL in response if portfolio is known
             response_data = serializer.data
             if portfolio:
@@ -703,6 +707,36 @@ def portfolio_edit_view(request, pk):
     })
 
 
+def _tax_lookup_context(user):
+    """
+    Extra context for transaction_form.html enabling a live client-side tax
+    preview for DIV entries. The dataset (all tracked stocks + this user's own
+    tax rules) is small enough to embed directly rather than round-trip an
+    AJAX call per keystroke — the JS mirrors get_withholding_tax_rate's
+    precedence (stock-specific > country+entity_type > country+REGULAR).
+    """
+    import json
+    from research.models import Stock
+    from .models import TaxWithholdingRule
+
+    stock_meta = {
+        s.symbol: {'country': s.country, 'entity_type': s.entity_type}
+        for s in Stock.objects.all()
+    }
+    user_rules = list(
+        TaxWithholdingRule.objects.filter(user=user).values(
+            'symbol', 'country', 'entity_type', 'withholding_tax_rate'
+        )
+    )
+    for r in user_rules:
+        r['withholding_tax_rate'] = float(r['withholding_tax_rate'])
+
+    return {
+        'stock_tax_meta_json': json.dumps(stock_meta),
+        'user_tax_rules_json': json.dumps(user_rules),
+    }
+
+
 @login_required
 @require_http_methods(["GET", "POST"])
 def transaction_create_view(request, portfolio_id):
@@ -727,6 +761,7 @@ def transaction_create_view(request, portfolio_id):
                         'portfolio': portfolio,
                         'today': datetime.now().strftime('%Y-%m-%d'),
                         'currency_choices': CURRENCY_CHOICES,
+                        **_tax_lookup_context(request.user),
                     })
                 success, message, stock = PortfolioCalculationService.ensure_stock_exists(symbol)
                 if not success:
@@ -736,6 +771,7 @@ def transaction_create_view(request, portfolio_id):
                         'portfolio': portfolio,
                         'today': datetime.now().strftime('%Y-%m-%d'),
                         'currency_choices': CURRENCY_CHOICES,
+                        **_tax_lookup_context(request.user),
                     })
                 resolved_symbol = stock.symbol
                 stock_currency = stock.currency or 'USD'
@@ -744,6 +780,7 @@ def transaction_create_view(request, portfolio_id):
                 stock_currency = ''
 
             commission_value = request.POST.get('commission', '').strip() or '0'
+            tax_value        = request.POST.get('tax', '').strip() or '0'
             quantity_raw     = request.POST.get('quantity', '').strip()
             quantity_value   = Decimal(quantity_raw) if quantity_raw else Decimal('1')
             tx_date_str      = request.POST.get('transaction_date', '')
@@ -820,6 +857,7 @@ def transaction_create_view(request, portfolio_id):
                         'fx_warning': True,
                         'post': request.POST,
                         'currency_choices': CURRENCY_CHOICES,
+                        **_tax_lookup_context(request.user),
                     })
 
             transaction = Transaction.objects.create(
@@ -829,6 +867,7 @@ def transaction_create_view(request, portfolio_id):
                 quantity=quantity_value,
                 price=Decimal(request.POST.get('price', '0') or '0'),
                 commission=Decimal(commission_value),
+                tax=Decimal(tax_value),
                 transaction_date=tx_date_str,
                 broker=request.POST.get('broker', ''),
                 notes=request.POST.get('notes', ''),
@@ -850,6 +889,8 @@ def transaction_create_view(request, portfolio_id):
 
             if transaction.transaction_type == 'BUY':
                 PortfolioCalculationService.fetch_and_store_buy_yield(transaction)
+            elif transaction.transaction_type == 'DIV':
+                PortfolioCalculationService.fetch_and_store_transaction_tax(transaction)
 
             # Process FX lots
             if tx_type in FX_TYPES:
@@ -879,6 +920,7 @@ def transaction_create_view(request, portfolio_id):
         'portfolio': portfolio,
         'today': datetime.now().strftime('%Y-%m-%d'),
         'currency_choices': CURRENCY_CHOICES,
+        **_tax_lookup_context(request.user),
     })
 
 
@@ -959,6 +1001,7 @@ def transaction_edit_view(request, portfolio_id, tx_id):
                 stock_currency  = ''
 
             commission_value = request.POST.get('commission', '').strip() or '0'
+            tax_value        = request.POST.get('tax', '').strip() or '0'
             quantity_raw     = request.POST.get('quantity', '').strip()
             quantity_value   = Decimal(quantity_raw) if quantity_raw else Decimal('1')
             tx_date_str      = request.POST.get('transaction_date', '')
@@ -1004,6 +1047,7 @@ def transaction_edit_view(request, portfolio_id, tx_id):
             transaction.quantity         = quantity_value
             transaction.price            = Decimal(request.POST.get('price', '0') or '0')
             transaction.commission       = Decimal(commission_value)
+            transaction.tax              = Decimal(tax_value)
             transaction.transaction_date = tx_date_str
             transaction.broker           = request.POST.get('broker', '')
             transaction.notes            = request.POST.get('notes', '')
@@ -1023,6 +1067,9 @@ def transaction_edit_view(request, portfolio_id, tx_id):
                 transaction.commission_currency = request.POST.get('commission_currency', '').strip().upper()
 
             transaction.save()
+
+            if transaction.transaction_type == 'DIV':
+                PortfolioCalculationService.fetch_and_store_transaction_tax(transaction)
 
             # Rebuild positions for any affected stock symbols
             symbols_to_rebuild = set()
@@ -1051,6 +1098,7 @@ def transaction_edit_view(request, portfolio_id, tx_id):
         'quantity':            str(transaction.quantity),
         'price':               str(transaction.price),
         'commission':          str(transaction.commission),
+        'tax':                 str(transaction.tax),
         'transaction_date':    tx_date_str,
         'broker':              transaction.broker or '',
         'notes':               transaction.notes or '',
@@ -1074,6 +1122,7 @@ def transaction_edit_view(request, portfolio_id, tx_id):
         'post':            post,
         'form_action':     form_action,
         'currency_choices': CURRENCY_CHOICES,
+        **_tax_lookup_context(request.user),
     })
 
 
@@ -1317,4 +1366,59 @@ def tax_report_view(request, pk):
         'report': report,
         'available_years': available_years,
         'selected_year': year,
+    })
+
+
+@login_required
+def tax_settings_view(request):
+    """
+    Manage this user's dividend withholding tax rules — per-country/entity-type
+    defaults and per-stock overrides. Rules are strictly per-user: two users
+    holding the same stock can have different rates (different tax residency,
+    treaty status, W-8BEN filing, etc), so nothing here is shared or visible
+    between accounts.
+    """
+    from decimal import InvalidOperation
+    from .models import TaxWithholdingRule
+
+    if request.method == 'POST':
+        if request.POST.get('action') == 'delete':
+            TaxWithholdingRule.objects.filter(
+                id=request.POST.get('rule_id'), user=request.user
+            ).delete()
+            messages.success(request, 'Tax rule deleted.')
+            return redirect('portfolio:tax_settings_view')
+
+        symbol      = request.POST.get('symbol', '').strip().upper() or None
+        country     = request.POST.get('country', '').strip() or None
+        entity_type = request.POST.get('entity_type', '').strip() or 'REGULAR'
+        rate_raw    = request.POST.get('withholding_tax_rate', '').strip()
+
+        try:
+            rate = Decimal(rate_raw)
+        except (InvalidOperation, TypeError):
+            messages.error(request, 'Enter a valid tax rate.')
+            return redirect('portfolio:tax_settings_view')
+
+        if symbol:
+            TaxWithholdingRule.objects.update_or_create(
+                user=request.user, symbol=symbol,
+                defaults={'withholding_tax_rate': rate, 'country': None, 'entity_type': 'REGULAR'},
+            )
+        elif country:
+            TaxWithholdingRule.objects.update_or_create(
+                user=request.user, symbol=None, country=country, entity_type=entity_type,
+                defaults={'withholding_tax_rate': rate},
+            )
+        else:
+            messages.error(request, 'Provide either a country or a stock symbol.')
+            return redirect('portfolio:tax_settings_view')
+
+        messages.success(request, 'Tax rule saved.')
+        return redirect('portfolio:tax_settings_view')
+
+    rules = TaxWithholdingRule.objects.filter(user=request.user).order_by('country', 'entity_type', 'symbol')
+    return render(request, 'portfolio/tax_settings.html', {
+        'rules': rules,
+        'entity_types': TaxWithholdingRule.ENTITY_TYPES,
     })

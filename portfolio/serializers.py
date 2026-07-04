@@ -12,23 +12,25 @@ class TransactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Transaction
         fields = [
-            'id', 'portfolio', 'symbol', 'transaction_type', 
-            'quantity', 'price', 'commission', 'transaction_date',
+            'id', 'portfolio', 'symbol', 'transaction_type',
+            'quantity', 'price', 'commission', 'tax', 'transaction_date',
             'broker', 'buy_yield', 'notes', 'created_at', 'total_amount'
         ]
         read_only_fields = ['id', 'created_at', 'total_amount']
-    
+
     def create(self, validated_data):
         """Create transaction and update position"""
         transaction = Transaction.objects.create(**validated_data)
-        
+
         # Update position based on transaction
         PortfolioCalculationService.update_position_from_transaction(transaction)
-        
+
         # If it's a BUY transaction and buy_yield is not set, fetch it
         if transaction.transaction_type == 'BUY' and not transaction.buy_yield:
             PortfolioCalculationService.fetch_and_store_buy_yield(transaction)
-        
+        elif transaction.transaction_type == 'DIV':
+            PortfolioCalculationService.fetch_and_store_transaction_tax(transaction)
+
         return transaction
 
 

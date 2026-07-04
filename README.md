@@ -15,6 +15,7 @@ MarketMind is a self-hosted Django application for tracking stock portfolios, mo
 - **Live price feed** — Prices fetched from yfinance and cached per symbol, ensuring consistency across all views.
 - **Dividend automation** — Sync dividend history from Alpha Vantage (preferred) or yfinance (fallback); qualifying payments are auto-recorded against the right positions, including ones since fully sold. Alpha Vantage also provides declaration/payment-date history, powering accurate dividend growth and Buy Yield calculations — see [DIVIDEND_AUTOMATION.md](DIVIDEND_AUTOMATION.md).
 - **Tax reporting** — Per-portfolio P&L reports with FIFO cost-basis matching. Separate stock and FX gain/loss streams as required by most tax authorities.
+- **Dividend withholding tax** — Per-user rules estimate origin-country withholding on dividends (and record it on interest), with MLP/REIT-aware entity classification and a live preview when entering transactions — see [TAX_WITHHOLDING.md](TAX_WITHHOLDING.md).
 - **Multi-currency FX book** — Real (EXC) and virtual (SELL / DIV / INT) FX lots tracked with FIFO consumption; gains and losses reported in the portfolio's native currency.
 - **FX rate integration** — Currency rates fetched automatically from a self-hosted Frankfurter v2 instance, with weekend/holiday fallback and manual-entry override.
 - **Research tools** — Historical price data, fundamental metrics, and company information for any listed symbol.

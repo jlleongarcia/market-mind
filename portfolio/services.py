@@ -695,7 +695,51 @@ class PortfolioCalculationService:
         
         position.save()
         return position
-    
+
+    @staticmethod
+    def get_withholding_tax_rate(user, stock):
+        """
+        Effective dividend withholding tax rate (percentage) for this user +
+        stock, or None if the user hasn't set one up yet.
+
+        Precedence (most to least specific):
+          1. A stock-specific rule for this user (TaxWithholdingRule.symbol == stock.symbol)
+          2. A country + entity_type rule for this user
+          3. A country + REGULAR rule for this user, when the stock's entity_type
+             is MLP/REIT but no entity-specific rule exists for that country
+             (most countries don't distinguish REIT/MLP taxation from regular
+             corp dividends the way the US does)
+
+        Rules are always per-user — never shared between users, since tax
+        residency/treaty status/W-8BEN filing differs per person.
+        """
+        from portfolio.models import TaxWithholdingRule
+
+        if stock is None or user is None:
+            return None
+
+        rule = TaxWithholdingRule.objects.filter(user=user, symbol=stock.symbol).first()
+        if rule:
+            return rule.withholding_tax_rate
+
+        if not stock.country:
+            return None
+
+        rule = TaxWithholdingRule.objects.filter(
+            user=user, symbol__isnull=True, country=stock.country, entity_type=stock.entity_type,
+        ).first()
+        if rule:
+            return rule.withholding_tax_rate
+
+        if stock.entity_type != 'REGULAR':
+            rule = TaxWithholdingRule.objects.filter(
+                user=user, symbol__isnull=True, country=stock.country, entity_type='REGULAR',
+            ).first()
+            if rule:
+                return rule.withholding_tax_rate
+
+        return None
+
     @staticmethod
     def fetch_and_store_buy_yield(transaction):
         """
@@ -808,7 +852,45 @@ class PortfolioCalculationService:
         except Exception as e:
             logger.warning(f"Could not calculate buy_yield for transaction {transaction.id}: {e}")
             return False
-    
+
+    @staticmethod
+    def fetch_and_store_transaction_tax(transaction):
+        """
+        Compute and store `tax` for a DIV transaction, using the portfolio
+        owner's TaxWithholdingRule for this stock (get_withholding_tax_rate).
+
+        Only fills in `tax` when it's still 0 — i.e. the user hasn't already
+        typed a value themselves (whether manually or via the form's live JS
+        preview) — never overwrites an existing entry.
+
+        Returns True if a tax value was stored, False otherwise (not a DIV
+        transaction, already set, stock not found, or no rate known yet).
+        """
+        if transaction.transaction_type != 'DIV':
+            return False
+        if transaction.tax:
+            return False
+
+        try:
+            stock = Stock.objects.filter(symbol=transaction.symbol).first()
+            if stock is None:
+                return False
+
+            rate = PortfolioCalculationService.get_withholding_tax_rate(
+                transaction.portfolio.user, stock
+            )
+            if rate is None:
+                return False
+
+            gross = Decimal(str(transaction.price)) * Decimal(str(transaction.quantity))
+            transaction.tax = (gross * rate / 100).quantize(Decimal('0.01'))
+            transaction.save(update_fields=['tax'])
+            return True
+
+        except Exception as e:
+            logger.warning(f"Could not calculate tax for transaction {transaction.id}: {e}")
+            return False
+
     @staticmethod
     def calculate_dividend_income_history(portfolio, year=None):
         """
@@ -954,7 +1036,9 @@ class PortfolioCalculationService:
         Refresh research.Dividend data from yfinance for every symbol ever
         transacted in this portfolio, then create portfolio.Dividend records
         for dividends the user qualified for (held shares at close of the day
-        before the ex-dividend date).
+        before the ex-dividend date). Expected withholding tax is computed at
+        creation time from the portfolio owner's TaxWithholdingRule, if any —
+        see get_withholding_tax_rate.
 
         Symbols are sourced from transaction history rather than open
         positions, since a fully sold-out symbol still has no Position row
@@ -1047,11 +1131,18 @@ class PortfolioCalculationService:
 
             total_amount = (div.amount * shares).quantize(Decimal('0.01'))
 
+            rate = PortfolioCalculationService.get_withholding_tax_rate(portfolio.user, div.stock)
+            tax_amount = (
+                (total_amount * rate / 100).quantize(Decimal('0.01'))
+                if rate is not None else Decimal('0')
+            )
+
             PortfolioDividend.objects.create(
                 portfolio=portfolio,
                 symbol=symbol,
                 amount=total_amount,
                 quantity=shares,
+                tax=tax_amount,
                 payment_date=payment_date,
                 ex_dividend_date=ex_date,
                 notes='Auto-recorded',

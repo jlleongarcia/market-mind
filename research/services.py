@@ -59,6 +59,21 @@ def infer_dividend_frequency(stock: Stock, as_of_date: Optional[date] = None) ->
     return 1
 
 
+def infer_entity_type(name: Optional[str], sector: Optional[str]) -> str:
+    """
+    Best-guess tax entity classification from a stock's name/sector — used only
+    to seed Stock.entity_type when a stock is first created (never overwrites
+    an existing value). MLPs almost always carry "L.P." in their legal name
+    (e.g. "Enterprise Products Partners L.P."); REITs are identified by sector
+    since there's no equally reliable naming convention.
+    """
+    if name and 'l.p.' in name.lower():
+        return 'MLP'
+    if sector == 'Real Estate':
+        return 'REIT'
+    return 'REGULAR'
+
+
 class StockDataFetcher:
     """Service class for fetching stock data from yfinance and storing in database"""
     
@@ -97,15 +112,18 @@ class StockDataFetcher:
                             logger.info(f"Found US listing for {base_symbol}, using instead of {symbol}")
                             return us_info
                     
+                    name = info.get('longName', info.get('shortName', symbol))
+                    sector = info.get('sector')
                     return {
                         'symbol': symbol.upper(),
-                        'name': info.get('longName', info.get('shortName', symbol)),
-                        'sector': info.get('sector'),
+                        'name': name,
+                        'sector': sector,
                         'industry': info.get('industry'),
                         'exchange': exchange,
                         'currency': info.get('currency', 'USD'),
                         'country': info.get('country'),
                         'is_etf': info.get('quoteType') == 'ETF',
+                        'entity_type': infer_entity_type(name, sector),
                     }
             except Exception as info_error:
                 logger.warning(f"Could not fetch info for {symbol}, trying historical data: {info_error}")
@@ -231,12 +249,21 @@ class StockDataFetcher:
         info = self.fetch_stock_info(symbol)
         if not info:
             return None
-        
+
+        # entity_type is a manually-correctable classification — only seed it on
+        # true creation, never overwrite it on a later refresh (same principle as
+        # declaration_date/declaration_date_checked: auto-populate once, then trust
+        # the user if they've since corrected it).
+        entity_type = info.pop('entity_type', None)
+
         stock, created = Stock.objects.update_or_create(
             symbol=info['symbol'],
             defaults=info
         )
-        
+        if created and entity_type:
+            stock.entity_type = entity_type
+            stock.save(update_fields=['entity_type'])
+
         action = "Created" if created else "Updated"
         logger.info(f"{action} stock: {stock.symbol} - {stock.name}")
         

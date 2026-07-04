@@ -6,6 +6,13 @@ from decimal import Decimal
 
 class Stock(models.Model):
     """Core stock/company information"""
+
+    ENTITY_TYPES = [
+        ('REGULAR', 'Regular'),
+        ('MLP', 'MLP'),
+        ('REIT', 'REIT'),
+    ]
+
     symbol = models.CharField(max_length=10, primary_key=True, db_index=True)
     name = models.CharField(max_length=200)
     sector = models.CharField(max_length=100, blank=True, null=True)
@@ -14,6 +21,11 @@ class Stock(models.Model):
     currency = models.CharField(max_length=10, default='USD')
     country = models.CharField(max_length=50, blank=True, null=True)
     is_etf = models.BooleanField(default=False)  # from yfinance quoteType — ETF distributions are summed rather than annualised from a single reference payment
+    # Objective tax classification (not per-user) — auto-detected only when the stock is first
+    # created, never overwritten afterward, so a manual correction always sticks. Feeds
+    # TaxWithholdingRule lookups (portfolio app) — MLPs/REITs are often taxed differently
+    # from regular corp dividends regardless of country.
+    entity_type = models.CharField(max_length=10, choices=ENTITY_TYPES, default='REGULAR')
 
     last_updated = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)

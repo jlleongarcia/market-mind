@@ -4,6 +4,47 @@ How MarketMind computes **Buy Yield** on purchases, keeps that calculation
 accurate over time, and records dividend income against positions —
 including ones that have since been fully sold.
 
+For estimating origin-country withholding tax on those dividends, see
+[TAX_WITHHOLDING.md](TAX_WITHHOLDING.md) — a separate, per-user concern
+layered on top of the ledger described here.
+
+---
+
+## ⏳ Pending check (delete this section once resolved)
+
+No ETF in the database has `declaration_date` populated yet: **IDUS.L 0/54**,
+**DGRW.L 0/39**. Unclear which of two explanations it is:
+
+1. Alpha Vantage's quota has simply never been free when these LSE-listed
+   symbols came up in the daily backfill rotation, or
+2. Alpha Vantage's `DIVIDENDS` endpoint doesn't cover these symbols at all.
+
+**Task:** check again after the daily cron (8:30 AM) has had a few more
+attempts — if either stock still shows 0 after several days where the
+backfill log shows it was actually queried (not skipped for quota), that
+points to (2). Quick check:
+
+```bash
+docker exec market-mind-web-1 python manage.py shell -c "
+from research.models import Dividend
+for sym in ['IDUS.L','DGRW.L']:
+    print(sym, Dividend.objects.filter(stock__symbol=sym, declaration_date__isnull=False).count(),
+          '/', Dividend.objects.filter(stock__symbol=sym).count())
+"
+```
+
+**Also check:** `auto_record_dividends` (`portfolio/services.py:952`) currently
+creates an Activity-ledger entry as soon as a `research.Dividend` row exists
+and the shares-held-before-ex-date eligibility check passes — there's no
+check that the ex-date (let alone `payment_date`) has actually occurred yet.
+Since AV can report a dividend that's been declared but hasn't gone ex yet
+(seen live, e.g. MSFT's next-quarter row), this means a *future*, not-yet-paid
+dividend could already show up in the Activity ledger as if it were real
+income received. Task: consider gating ledger creation on `payment_date <=
+today` (falling back to `ex_dividend_date <= today` when `payment_date` is
+unknown) instead of only checking entitlement, so the ledger reflects
+dividends actually paid, not merely ones the user is eligible for.
+
 ---
 
 ## Buy Yield
@@ -95,10 +136,7 @@ differs between ETFs and equities. The data pipeline is identical too:
 `save_dividends` and `backfill_dividend_declaration_dates` are symbol-based
 with no ETF/equity branching at all, so ETFs get `declaration_date` and
 `declaration_date_checked` populated (or not) exactly the same way regular
-stocks do. As of this writing no ETF in the database has `declaration_date`
-populated yet (0/54 for IDUS.L, 0/39 for DGRW.L) — Alpha Vantage may simply
-not have been reached for these LSE-listed symbols yet (quota exhaustion),
-or may not cover them at all; the daily cron will settle which over time.
+stocks do.
 
 ### Dividend growth has the same frequency fix
 
