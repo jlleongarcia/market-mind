@@ -232,17 +232,17 @@
     <div class="card-header">
         <span class="card-title">
             Transaction Ledger
-            <span class="badge badge-neutral" style="margin-left:6px;">{{ ledger|length }}</span>
+            <span class="badge badge-neutral" id="ledgerCount" style="margin-left:6px;">{{ ledger|length }}</span>
         </span>
-        <div class="ledger-legend">
-            <span class="tx-badge buy">Buy</span>
-            <span class="tx-badge sell">Sell</span>
-            <span class="tx-badge div">Dividend</span>
-            <span class="tx-badge spof">Spin-Off</span>
-            <span class="tx-badge int">Interest</span>
-            <span class="tx-badge dep">Deposit</span>
-            <span class="tx-badge wit">Withdrawal</span>
-            <span class="tx-badge exc">Exchange</span>
+        <div class="ledger-legend" id="ledgerLegend">
+            <span class="tx-badge buy" data-type="buy" title="Click to filter">Buy</span>
+            <span class="tx-badge sell" data-type="sell" title="Click to filter">Sell</span>
+            <span class="tx-badge div" data-type="div" title="Click to filter">Dividend</span>
+            <span class="tx-badge spof" data-type="spof" title="Click to filter">Spin-Off</span>
+            <span class="tx-badge int" data-type="int" title="Click to filter">Interest</span>
+            <span class="tx-badge dep" data-type="dep" title="Click to filter">Deposit</span>
+            <span class="tx-badge wit" data-type="wit" title="Click to filter">Withdrawal</span>
+            <span class="tx-badge exc" data-type="exc" title="Click to filter">Exchange</span>
         </div>
     </div>
     <div class="table-wrap">
@@ -338,6 +338,45 @@
             }
         });
     });
+
+    // ── Ledger legend filter ────────────────────────────────────────
+    const ledgerLegend = document.getElementById('ledgerLegend');
+    if (ledgerLegend) {
+        const legendBadges = Array.from(ledgerLegend.querySelectorAll('.tx-badge'));
+        const mutedTypes   = new Set();
+        const ledgerCount  = document.getElementById('ledgerCount');
+
+        function applyLedgerFilter() {
+            let visible = 0;
+            document.querySelectorAll('tr[class*="ledger-row-"]').forEach(row => {
+                const type   = row.className.match(/ledger-row-(\S+)/)[1];
+                const hidden = mutedTypes.has(type);
+                row.style.display = hidden ? 'none' : '';
+                if (hidden) {
+                    const next = row.nextElementSibling;
+                    if (next && next.classList.contains('ledger-detail-row')) next.remove();
+                    row.classList.remove('ledger-row-expanded');
+                } else {
+                    visible++;
+                }
+            });
+            if (ledgerCount) ledgerCount.textContent = visible;
+        }
+
+        legendBadges.forEach(badge => {
+            badge.addEventListener('click', () => {
+                const type = badge.dataset.type;
+                if (mutedTypes.has(type)) {
+                    mutedTypes.delete(type);
+                    badge.classList.remove('tx-badge-muted');
+                } else {
+                    mutedTypes.add(type);
+                    badge.classList.add('tx-badge-muted');
+                }
+                applyLedgerFilter();
+            });
+        });
+    }
 
     // ── Allocation doughnut ───────────────────────────────────────
     const positions = [

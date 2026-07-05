@@ -342,17 +342,17 @@
     <div class="card-header">
         <span class="card-title">
             Activity
-            <span class="badge badge-neutral" style="margin-left:6px;">{{ ledger|length }}</span>
+            <span class="badge badge-neutral" id="ledgerCount" style="margin-left:6px;">{{ ledger|length }}</span>
         </span>
-        <div class="ledger-legend">
-            <span class="tx-badge buy">Buy</span>
-            <span class="tx-badge sell">Sell</span>
-            <span class="tx-badge div">Dividend</span>
-            <span class="tx-badge spof">Spin-Off</span>
-            <span class="tx-badge int">Interest</span>
-            <span class="tx-badge dep">Deposit</span>
-            <span class="tx-badge wit">Withdrawal</span>
-            <span class="tx-badge exc">Exchange</span>
+        <div class="ledger-legend" id="ledgerLegend">
+            <span class="tx-badge buy" data-type="buy" title="Click to filter">Buy</span>
+            <span class="tx-badge sell" data-type="sell" title="Click to filter">Sell</span>
+            <span class="tx-badge div" data-type="div" title="Click to filter">Dividend</span>
+            <span class="tx-badge spof" data-type="spof" title="Click to filter">Spin-Off</span>
+            <span class="tx-badge int" data-type="int" title="Click to filter">Interest</span>
+            <span class="tx-badge dep" data-type="dep" title="Click to filter">Deposit</span>
+            <span class="tx-badge wit" data-type="wit" title="Click to filter">Withdrawal</span>
+            <span class="tx-badge exc" data-type="exc" title="Click to filter">Exchange</span>
         </div>
     </div>
     <div class="activity-feed" id="activityFeed">
@@ -487,37 +487,56 @@
 {% endif %}
 
 <script>
-// ── Activity feed pagination ──────────────────────────────────────────────────
+// ── Activity feed pagination + legend filter ────────────────────────────────
 (function () {
     const PAGE_SIZE = 20;
     const feed = document.getElementById('activityFeed');
     const pagination = document.getElementById('ledgerPagination');
+    const ledgerCount = document.getElementById('ledgerCount');
+    const legend = document.getElementById('ledgerLegend');
     if (!feed || !pagination) return;
 
     const allItems = Array.from(feed.querySelectorAll('.activity-item'));
     if (allItems.length === 0) return;
 
+    const mutedTypes = new Set();
+    let visibleItems = allItems;
     let currentPage = 1;
-    const totalPages = Math.ceil(allItems.length / PAGE_SIZE);
+    let totalPages = 1;
+    let emptyRow = null;
 
-    if (totalPages <= 1) {
-        pagination.style.display = 'none';
-        return;
+    function itemType(item) {
+        const m = item.className.match(/activity-item-(\S+)/);
+        return m ? m[1] : '';
     }
 
     function showPage(page) {
         feed.querySelectorAll('.activity-detail').forEach(r => r.remove());
         feed.querySelectorAll('.activity-item-expanded').forEach(r => r.classList.remove('activity-item-expanded'));
-        const start = (page - 1) * PAGE_SIZE;
-        const end = start + PAGE_SIZE;
-        allItems.forEach((item, i) => { item.style.display = (i >= start && i < end) ? '' : 'none'; });
+        if (emptyRow) { emptyRow.remove(); emptyRow = null; }
+
+        allItems.forEach(item => { item.style.display = 'none'; });
+
+        if (visibleItems.length === 0) {
+            emptyRow = document.createElement('div');
+            emptyRow.className = 'activity-item';
+            emptyRow.innerHTML = '<span class="activity-desc" style="color:#94a3b8;">No transactions match the selected filter</span>';
+            feed.appendChild(emptyRow);
+        } else {
+            const start = (page - 1) * PAGE_SIZE;
+            const end = start + PAGE_SIZE;
+            visibleItems.forEach((item, i) => { item.style.display = (i >= start && i < end) ? '' : 'none'; });
+        }
+
         currentPage = page;
         renderControls();
     }
 
     function renderControls() {
+        if (totalPages <= 1) { pagination.style.display = 'none'; pagination.innerHTML = ''; return; }
+        pagination.style.display = '';
         const start = (currentPage - 1) * PAGE_SIZE + 1;
-        const end = Math.min(currentPage * PAGE_SIZE, allItems.length);
+        const end = Math.min(currentPage * PAGE_SIZE, visibleItems.length);
         const s = 'padding:4px 10px;border-radius:6px;border:1px solid #e2e8f0;background:#fff;cursor:pointer;font-size:0.82rem;color:#475569;';
         const sd = s + 'opacity:0.4;cursor:default;';
         let btns = '';
@@ -528,7 +547,7 @@
             btns += `<button onclick="ledgerGoTo(${p})" style="${act ? s + 'background:#6366f1;color:#fff;border-color:#6366f1;font-weight:600;' : s}">${p}</button>`;
         }
         pagination.innerHTML = `
-            <span>${start}–${end} of ${allItems.length}</span>
+            <span>${start}–${end} of ${visibleItems.length}</span>
             <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">
                 <button onclick="ledgerGoTo(${currentPage-1})" ${currentPage===1?'disabled':''} style="${currentPage===1?sd:s}">‹ Prev</button>
                 ${btns}
@@ -536,8 +555,32 @@
             </div>`;
     }
 
+    function applyFilter() {
+        visibleItems = allItems.filter(item => !mutedTypes.has(itemType(item)));
+        if (ledgerCount) ledgerCount.textContent = visibleItems.length;
+        totalPages = Math.max(1, Math.ceil(visibleItems.length / PAGE_SIZE));
+        showPage(1);
+    }
+
     window.ledgerGoTo = function(page) { if (page >= 1 && page <= totalPages) showPage(page); };
-    showPage(1);
+
+    if (legend) {
+        legend.querySelectorAll('.tx-badge').forEach(badge => {
+            badge.addEventListener('click', () => {
+                const type = badge.dataset.type;
+                if (mutedTypes.has(type)) {
+                    mutedTypes.delete(type);
+                    badge.classList.remove('tx-badge-muted');
+                } else {
+                    mutedTypes.add(type);
+                    badge.classList.add('tx-badge-muted');
+                }
+                applyFilter();
+            });
+        });
+    }
+
+    applyFilter();
 })();
 
 // ── Activity feed expand ──────────────────────────────────────────────────────

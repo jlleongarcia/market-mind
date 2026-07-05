@@ -19,13 +19,15 @@ CSRF_TRUSTED_ORIGINS=https://your-domain.com
 # Self-hosted Frankfurter v2 for FX rates
 FX_RATE_SERVICE_URL=http://<host>:<port>
 
-# Email notifications (optional)
+# Email notifications (optional — see "Email Notifications (SMTP)" below)
 EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
 EMAIL_HOST=smtp.example.com
 EMAIL_PORT=587
 EMAIL_USE_TLS=True
 EMAIL_HOST_USER=user@example.com
 EMAIL_HOST_PASSWORD=<password>
+DEFAULT_FROM_EMAIL=user@example.com
+ADMIN_EMAIL=admin@example.com
 ```
 
 **Generate a secure secret key:**
@@ -121,6 +123,67 @@ docker compose restart web
 > stocks routed to the missing key's provider fall back to yfinance. If you
 > have a large portfolio and hit a provider's daily cap during a sync, the
 > app automatically falls back to yfinance for the remaining tickers.
+
+---
+
+## Email Notifications (SMTP)
+
+MarketMind sends two kinds of transactional email as part of the manual
+account-approval flow (`research/adapters.py`, `research/views.py`,
+`research/models.py`):
+
+- **New registration request** → sent to the admin (regular sign-up and
+  Google OAuth sign-up both trigger this).
+- **Approved / rejected** → sent to the user once an admin actions their
+  request from the Django admin panel (`UserRegistrationRequest.approve` /
+  `.reject`).
+
+**Without SMTP configured, `EMAIL_BACKEND` defaults to Django's console
+backend** — emails are written to the web container's stdout instead of
+being delivered anywhere. Fine for local development (`docker compose logs
+web` to read them), not for production.
+
+### Setup
+
+Any standard SMTP provider works — Gmail, SendGrid, Mailgun, your domain's
+own mail server, etc. Gmail is the simplest option for a small/personal
+deployment:
+
+1. Enable **2-Step Verification** on the Google account (required for App
+   Passwords): [myaccount.google.com/security](https://myaccount.google.com/security).
+2. Generate an **App Password** at
+   [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+   — pick "Mail" as the app. This is a 16-character password used **instead
+   of** your normal Gmail password; Gmail rejects SMTP logins with the
+   regular account password.
+3. Add to `.env`:
+   ```env
+   EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+   EMAIL_HOST=smtp.gmail.com
+   EMAIL_PORT=587
+   EMAIL_USE_TLS=True
+   EMAIL_HOST_USER=you@gmail.com
+   EMAIL_HOST_PASSWORD=<16-character App Password, no spaces>
+   DEFAULT_FROM_EMAIL=you@gmail.com
+   ADMIN_EMAIL=you@gmail.com
+   ```
+   For a different provider, swap in its SMTP host/port/credentials — the
+   Django settings are the same regardless of provider.
+4. Restart the web container:
+   ```bash
+   docker compose restart web
+   ```
+5. Send a test email to confirm delivery:
+   ```bash
+   docker compose exec web python manage.py sendtestemail you@gmail.com
+   ```
+   If it doesn't arrive, check `docker compose logs web` for an SMTP
+   authentication or connection error before assuming it's a spam-folder
+   issue.
+
+**`ADMIN_EMAIL` is only a fallback** — registration-request notifications go
+to the first superuser account's email address if one is set, and only fall
+back to `ADMIN_EMAIL` when no superuser has an email configured.
 
 ---
 
