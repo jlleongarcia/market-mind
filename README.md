@@ -13,7 +13,7 @@ MarketMind is a self-hosted Django application for tracking stock portfolios, mo
 - **Portfolio management** — Create multiple portfolios, track positions across brokers, and monitor real-time valuations with live price feeds.
 - **Transaction book** — Record buys, sells, dividends, interest, spin-offs, FX exchanges, deposits, and withdrawals.
 - **Live price feed** — Prices fetched from yfinance and cached per symbol, ensuring consistency across all views.
-- **Dividend automation** — Sync dividend history from Alpha Vantage (preferred) or yfinance (fallback); qualifying payments are auto-recorded against the right positions, including ones since fully sold. Alpha Vantage also provides declaration/payment-date history, powering accurate dividend growth and Buy Yield calculations — see [DIVIDEND_AUTOMATION.md](DIVIDEND_AUTOMATION.md).
+- **Dividend automation** — Sync dividend history from FMP (US-listed) or Alpha Vantage (everything else), falling back to yfinance; qualifying payments are auto-recorded against the right positions, including ones since fully sold. FMP/Alpha Vantage also provide declaration/payment-date history, powering accurate dividend growth and Buy Yield calculations — see [DIVIDEND_AUTOMATION.md](DIVIDEND_AUTOMATION.md).
 - **Tax reporting** — Per-portfolio P&L reports with FIFO cost-basis matching. Separate stock and FX gain/loss streams as required by most tax authorities.
 - **Dividend withholding tax** — Per-user rules estimate origin-country withholding on dividends (and record it on interest), with MLP/REIT-aware entity classification and a live preview when entering transactions — see [TAX_WITHHOLDING.md](TAX_WITHHOLDING.md).
 - **Multi-currency FX book** — Real (EXC) and virtual (SELL / DIV / INT) FX lots tracked with FIFO consumption; gains and losses reported in the portfolio's native currency.
@@ -30,7 +30,7 @@ MarketMind is a self-hosted Django application for tracking stock portfolios, mo
 |---|---|
 | Backend | Django 5.0.1, Django REST Framework |
 | Database | PostgreSQL 15 |
-| Market data | yfinance, Alpha Vantage (optional) |
+| Market data | yfinance, FMP + Alpha Vantage (optional, dividend history) |
 | FX rates | Self-hosted Frankfurter v2 |
 | Authentication | django-allauth, Google OAuth 2.0 |
 | Frontend | HTML5, CSS3, Vanilla JavaScript |

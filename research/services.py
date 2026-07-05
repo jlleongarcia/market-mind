@@ -377,6 +377,78 @@ class StockDataFetcher:
             logger.warning(f"Alpha Vantage DIVIDENDS fetch failed for {symbol}: {e}")
             return None
 
+    # Exchange codes yfinance reports for US-listed securities (same set
+    # fetch_stock_info already checks against for suffix disambiguation).
+    # FMP's free tier serves full dividend history — including declaration_date
+    # — only for symbols on these exchanges; anything else (e.g. LSE) comes
+    # back "Premium Query Parameter" even on a paid-for key.
+    US_EXCHANGES = {'NMS', 'NYQ', 'NYSE', 'NASDAQ'}
+
+    def _fetch_dividends_fmp(self, symbol: str) -> Optional[List[Dict]]:
+        """
+        Fetch full dividend history from Financial Modeling Prep in a single
+        request (their /stable/dividends endpoint returns the entire history
+        for a symbol, same as Alpha Vantage's DIVIDENDS endpoint) — US-listed
+        symbols only on the free tier.
+
+        Returns a list of dicts normalized to the same shape as
+        _fetch_dividends_alphavantage: ex_dividend_date, payment_date,
+        declaration_date, record_date, amount. Returns None if the API key is
+        missing, the symbol isn't covered (non-US, premium-gated), or any
+        other error occurs — callers should fall back accordingly.
+        """
+        from django.conf import settings
+        import requests as _requests
+
+        api_key = getattr(settings, 'FMP_API_KEY', '')
+        if not api_key:
+            return None
+
+        try:
+            resp = _requests.get(
+                'https://financialmodelingprep.com/stable/dividends',
+                params={'symbol': symbol.upper(), 'apikey': api_key},
+                timeout=10,
+            )
+            data = resp.json()
+
+            if not isinstance(data, list):
+                # Error dict: invalid key, premium-gated symbol, rate limit, etc.
+                logger.warning(f"FMP dividends no data for {symbol}: {data}")
+                return None
+
+            return [
+                {
+                    'ex_dividend_date': entry.get('date', ''),
+                    'payment_date': entry.get('paymentDate', ''),
+                    'declaration_date': entry.get('declarationDate', ''),
+                    'record_date': entry.get('recordDate', ''),
+                    'amount': entry.get('dividend', ''),
+                }
+                for entry in data
+            ]
+
+        except Exception as e:
+            logger.warning(f"FMP dividends fetch failed for {symbol}: {e}")
+            return None
+
+    def dividend_source_name(self, stock: Stock) -> str:
+        """'FMP' for US-listed stocks, 'Alpha Vantage' for everything else —
+        FMP's free tier doesn't cover non-US exchanges at all."""
+        return 'FMP' if stock.exchange in self.US_EXCHANGES else 'Alpha Vantage'
+
+    def _fetch_dividends_primary(self, stock: Stock) -> Optional[List[Dict]]:
+        """
+        Route to whichever free-tier source actually covers this stock's
+        exchange, in a single request either way: FMP for US-listed (deeper
+        declaration_date history and a much roomier daily quota), Alpha
+        Vantage for everything else (FMP's free tier blocks non-US symbols
+        outright, "Premium Query Parameter").
+        """
+        if self.dividend_source_name(stock) == 'FMP':
+            return self._fetch_dividends_fmp(stock.symbol)
+        return self._fetch_dividends_alphavantage(stock.symbol)
+
     def _fetch_payment_date_map_yfinance(self, symbol: str) -> dict:
         """
         Fallback: build a {ex_date: pay_date} map from yfinance calendar / info.
@@ -413,8 +485,10 @@ class StockDataFetcher:
         """
         Fetch and save dividend history to database.
 
-        Primary source: Alpha Vantage DIVIDENDS endpoint (has full payment_date
-        history).  Falls back to yfinance when AV is unavailable or rate-limited.
+        Primary source: FMP for US-listed stocks, Alpha Vantage for everything
+        else (see dividend_source_name) — both return full history, including
+        declaration_date/payment_date, in a single request. Falls back to
+        yfinance when the primary source is unavailable or rate-limited.
         """
         stock = Stock.objects.filter(symbol=symbol.upper()).first()
         if not stock:
@@ -422,11 +496,12 @@ class StockDataFetcher:
             if not stock:
                 return 0
 
-        # --- Alpha Vantage path (preferred) ---
-        av_data = self._fetch_dividends_alphavantage(symbol)
-        if av_data:
+        # --- Primary source (FMP or Alpha Vantage, by exchange) ---
+        source = self.dividend_source_name(stock)
+        primary_data = self._fetch_dividends_primary(stock)
+        if primary_data:
             created_count = 0
-            for entry in av_data:
+            for entry in primary_data:
                 try:
                     ex_date_str   = entry.get('ex_dividend_date', '')
                     pay_date_str  = entry.get('payment_date', '')
@@ -439,9 +514,9 @@ class StockDataFetcher:
                     # AV sends the string 'None' for records without a known payment/declaration date
                     pay_date  = date.fromisoformat(pay_date_str) if pay_date_str and pay_date_str != 'None' else None
                     decl_date = date.fromisoformat(decl_date_str) if decl_date_str and decl_date_str != 'None' else None
-                    # AV has genuinely answered for this ex-date: either it gave us a
-                    # declaration_date, or the dividend has already gone ex so a missing
-                    # declaration_date means AV will never have one — not "not announced yet".
+                    # The source has genuinely answered for this ex-date: either it gave us
+                    # a declaration_date, or the dividend has already gone ex so a missing
+                    # declaration_date means it will never have one — not "not announced yet".
                     decl_checked = decl_date is not None or ex_date < date.today()
 
                     defaults = {'amount': Decimal(str(amount_str))}
@@ -472,14 +547,14 @@ class StockDataFetcher:
                         created_count += 1
 
                 except Exception as e:
-                    logger.error(f"Error saving AV dividend for {symbol} on {entry}: {e}")
+                    logger.error(f"Error saving {source} dividend for {symbol} on {entry}: {e}")
                     continue
 
-            logger.info(f"Alpha Vantage: saved/updated {len(av_data)} dividend records for {symbol} ({created_count} new)")
+            logger.info(f"{source}: saved/updated {len(primary_data)} dividend records for {symbol} ({created_count} new)")
             return created_count
 
         # --- yfinance fallback ---
-        logger.info(f"Alpha Vantage unavailable for {symbol}, falling back to yfinance")
+        logger.info(f"{source} unavailable for {symbol}, falling back to yfinance")
         dividends = self.fetch_dividends(symbol)
         if dividends is None:
             return 0

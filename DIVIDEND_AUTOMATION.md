@@ -10,34 +10,29 @@ layered on top of the ledger described here.
 
 ---
 
-## ⏳ Pending check (delete this section once resolved)
+## 🔜 Near-future checks
 
-No ETF in the database has `declaration_date` populated yet: **IDUS.L 0/54**,
-**DGRW.L 0/39**. Unclear which of two explanations it is:
+Things still open, kept here deliberately separate from the rest of this
+doc (which describes how the system works *today*) so they don't get lost:
 
-1. Alpha Vantage's quota has simply never been free when these LSE-listed
-   symbols came up in the daily backfill rotation, or
-2. Alpha Vantage's `DIVIDENDS` endpoint doesn't cover these symbols at all.
-
-**Status as of 2026-07-05:** still unresolved, and today's data doesn't move
-it either way. `declaration_date_checked` was only added yesterday
-(2026-07-04), so today's 8:30 AM cron was the *first* run since it landed —
-and it hit Alpha Vantage's rate limit on the very first stock in the
-rotation (`ADP`, 1/26), so **zero** of the 26 stocks got checked today, not
-just these two. That's consistent with the quota having already been spent
-overnight (e.g. manual testing right after deploying the feature), not a
-new bug. Need a few clean cron runs — where the log shows stocks actually
-being queried past the point these two would come up — before (1) vs (2)
-can be distinguished. Quick check:
-
-```bash
-docker exec market-mind-web-1 python manage.py shell -c "
-from research.models import Dividend
-for sym in ['IDUS.L','DGRW.L']:
-    print(sym, Dividend.objects.filter(stock__symbol=sym, declaration_date__isnull=False).count(),
-          '/', Dividend.objects.filter(stock__symbol=sym).count())
-"
-```
+- **FMP Terms of Service unreviewed.** We checked Finnhub's and Tiingo's ToS
+  before ruling them out (redistribution/storage clauses, personal-use
+  disqualifiers), but never did the same for FMP before wiring it in as a
+  primary source. Worth reading `financialmodelingprep.com`'s ToS for the
+  same clauses — redistribution of derived data, storage/caching on
+  cancellation, personal- vs. commercial-use terms — before leaning on it
+  further.
+- **Watch Alpha Vantage now that its quota is dedicated to ~2–3 LSE
+  symbols** instead of the whole stock list. Confirm over the next several
+  daily cron runs that quota contention is genuinely gone (no more
+  `"no data ... rate limit"` on the very first stock in the log).
+- **Watch FMP's real daily request volume** against its 250/day free cap
+  once live in production — fine now with ~25 US tickers, but worth
+  revisiting if the tracked stock list grows substantially.
+- **Confirm the hybrid code actually shipped.** It was tested locally
+  against a throwaway Docker image (see `Data sources`, below) — verify
+  the next GHCR image rebuild/deploy contains it before trusting the next
+  8:30 AM cron run's results.
 
 ---
 
@@ -148,60 +143,104 @@ on existing transactions. Both are safe to rerun any time.
 
 ---
 
-## Data sources & a hard limit
+## Data sources
 
 Dividend history (`research.Dividend`) is fetched by
-`StockDataFetcher.save_dividends` (`research/services.py`):
+`StockDataFetcher.save_dividends` (`research/services.py`), which routes to
+one of two primary sources depending on the stock's exchange
+(`StockDataFetcher.dividend_source_name` / `_fetch_dividends_primary`),
+falling back to yfinance if the routed source fails:
 
-- **Alpha Vantage `DIVIDENDS` endpoint (preferred)** — the only source that
-  provides `declaration_date` (and `payment_date`). Coverage starts around
-  **2020**; older dividends will never have a `declaration_date`, and that's
-  expected — they just use the fallback rule above.
-- **yfinance (fallback)** — used only when Alpha Vantage is unavailable
-  (missing key, rate limit, request error). Has no `declaration_date` at
-  all, so any dividend saved this way needs a later backfill pass before
-  Buy Yield can use rule 1 for it.
+- **FMP `/stable/dividends` (US-listed stocks)** — `Stock.exchange` in
+  `{NMS, NYQ, NYSE, NASDAQ}` routes here. Free tier gives full history in a
+  single request per symbol, including `declaration_date`, back to the
+  1990s for most tickers (deeper than Alpha Vantage). **Blocks non-US
+  symbols outright** even with a paid-for key ("Premium Query Parameter"),
+  which is why non-US stocks are routed to Alpha Vantage instead — this
+  isn't optional. Free-tier quota: **250 requests/day**, comfortably
+  covering the whole US-listed stock list with room to spare.
+- **Alpha Vantage `DIVIDENDS` endpoint (everything else — LSE etc.)** — same
+  single-request-per-symbol shape, also provides `declaration_date` (and
+  `payment_date`), but coverage only starts around **2020**; older
+  dividends will never have a `declaration_date` there, and that's
+  expected — they just use the fallback rule above. Free-tier quota: **25
+  requests/day**, now shared only across the handful of non-US symbols
+  (previously shared across the entire stock list, which used to cause the
+  quota to run out before the first stock in the daily rotation).
+- **yfinance (universal fallback)** — used only when the routed primary
+  source is unavailable (missing key, rate limit, premium-gated, request
+  error). Has no `declaration_date` at all, so any dividend saved this way
+  needs a later backfill pass before Buy Yield can use rule 1 for it.
 
-**Alpha Vantage's free-tier key is capped at 25 requests/day.** Hitting that
-cap is routine, not exceptional — expect to see
-`"Alpha Vantage DIVIDENDS no data for X: ... rate limit"` in logs regularly.
+Both primary sources fetch a symbol's **entire** dividend history
+(`declaration_date`, `ex_date`, `payment_date` all included) in **one**
+request — there's no cheaper way to get these three dates, so this is
+already the minimum possible call count per symbol per refresh.
+
+**Alpha Vantage's free-tier key is capped at 25 requests/day** (FMP's is
+250/day). Expect to see `"FMP dividends no data for X: ..."` or `"Alpha
+Vantage DIVIDENDS no data for X: ... rate limit"` in logs occasionally.
 When that happens, `save_dividends` transparently falls back to yfinance, so
 data keeps flowing — just without `declaration_date` until the next
 successful backfill.
+
+**Not every symbol has dividend history on its routed source, and that's a
+real, permanent answer, not a quota problem.** Confirmed live for two LSE
+ETFs, IDUS.L and DGRW.L: calling Alpha Vantage's `DIVIDENDS` endpoint
+directly (with a delay between calls, to rule out the burst-rate-limit
+false negative) returned a clean, non-error `{"data": []}` for both — zero
+dividend history, ever, not a rate-limit message. FMP can't help either
+(non-US block). These two will permanently rely on the ex-date-only
+fallback rule for Buy Yield. `backfill_dividend_declaration_dates` (below)
+detects this "clean empty response" case and marks every eligible row
+`declaration_date_checked` immediately, instead of retrying forever.
+
+**Other providers evaluated and rejected (2026-07-05):** Finnhub's free tier
+gates *both* of its dividend endpoints behind a paid plan, for any market —
+confirmed via their own published API schema (`"premium": "Premium Access
+Required"`), not just marketing copy. Tiingo's corporate-actions/dividends
+endpoint returned live `403 Forbidden` on a real free-tier key (the same key
+works fine on Tiingo's free EOD-prices endpoint) — their docs say this
+endpoint needs discretionary Beta/enterprise approval from support, not a
+standard free-tier grant. Neither is used anywhere in this codebase.
 
 ---
 
 ## Self-healing backfill (daily cron)
 
-Because the AV quota is small and shared across every tracked stock, a
-single stock can go a day or more with only yfinance data. Two idempotent
-management commands close that gap automatically:
+Because Alpha Vantage's quota is small — and, before the FMP hybrid, was
+shared across every tracked stock — a single stock could go a day or more
+with only yfinance data. Two idempotent management commands close that gap
+automatically:
 
 - **`backfill_dividend_declaration_dates`** — update-only: fills in
   `declaration_date` on existing `Dividend` rows, never creates new ones and
-  never touches `amount`/`payment_date`. Only targets stocks with a dividend
-  dated on/after a **fixed** `2020-01-01` boundary (Alpha Vantage's observed
-  `declaration_date` coverage start) that's still missing `declaration_date`
-  **and** not yet `declaration_date_checked`. This must be a fixed calendar
-  date, not a rolling window relative to "today": a rolling window would
-  eventually push a genuinely-recoverable row (e.g. the MO 2023-09-14
-  dividend above) out of range purely because time passed, silently
-  dropping it from future retries even though Alpha Vantage could still
-  supply it. Accepts `--symbols SYM1 SYM2` to target specific stocks and
-  `--delay N` to throttle AV calls.
+  never touches `amount`/`payment_date`. Routes each stock to FMP or Alpha
+  Vantage the same way `save_dividends` does (`dividend_source_name`), so US
+  stocks no longer compete with LSE ones for Alpha Vantage's 25/day cap.
+  Only targets stocks with a dividend dated on/after a **fixed** `2020-01-01`
+  boundary (Alpha Vantage's observed `declaration_date` coverage start —
+  shared as a conservative floor for FMP too, even though FMP's own coverage
+  goes deeper) that's still missing `declaration_date` **and** not yet
+  `declaration_date_checked`. This must be a fixed calendar date, not a
+  rolling window relative to "today": a rolling window would eventually push
+  a genuinely-recoverable row (e.g. the MO 2023-09-14 dividend above) out of
+  range purely because time passed, silently dropping it from future
+  retries even though the source could still supply it. Accepts `--symbols
+  SYM1 SYM2` to target specific stocks and `--delay N` to throttle calls.
 
-  **`declaration_date_checked`** distinguishes "never verified against AV
-  yet" from "AV genuinely has nothing for this one" — set whenever AV
-  responds for an exact ex-date, whether or not it had a `declaration_date`
-  to give, *except* when the ex-date is still in the future (an
-  undeclared-but-upcoming dividend must keep being retried daily until it's
-  actually announced — that's the mechanism that fixes cases like MO).
-  Without this distinction, a stock with even one permanently-unrecoverable
-  gap (Alpha Vantage itself has occasional holes even within its covered
-  era — e.g. two of MSFT's own rows never got a `declaration_date` despite
-  a fully successful AV response) would resurface in the backlog every
-  single day forever, silently eating into the 25/day quota that a
-  brand-new stock might need.
+  **`declaration_date_checked`** distinguishes "never verified against the
+  routed source yet" from "that source genuinely has nothing for this one"
+  — set whenever the source responds for an exact ex-date, whether or not
+  it had a `declaration_date` to give, *except* when the ex-date is still in
+  the future (an undeclared-but-upcoming dividend must keep being retried
+  daily until it's actually announced — that's the mechanism that fixes
+  cases like MO). Same idea applies one level up: if a stock's routed source
+  answers with a clean, empty history (no rate-limit error, just zero
+  entries — confirmed for IDUS.L/DGRW.L above), every eligible row for that
+  stock is marked checked immediately, rather than resurfacing in the
+  backlog every single day forever and silently eating into whichever
+  source's quota it's routed to.
 - **`recompute_buy_yields`** — reruns `fetch_and_store_buy_yield` for every
   BUY transaction, so any yield computed while data was still incomplete
   gets silently corrected once `declaration_date` shows up.
@@ -242,7 +281,7 @@ above, and won't create ledger entries on its own.
 ### Only records dividends actually paid, not merely declared
 
 Holding shares before the ex-date makes a user *entitled* to a dividend, but
-Alpha Vantage can report one that's been declared and already has an
+the routed source can report one that's been declared and already has an
 ex-date without it having been paid yet (or even before it's gone ex at
 all) — e.g. MSFT's next-quarter row showing up in `research.Dividend` ahead
 of time. Recording that immediately would put a future, not-yet-received

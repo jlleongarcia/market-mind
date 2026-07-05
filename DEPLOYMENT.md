@@ -73,25 +73,33 @@ docker compose restart web
 
 ---
 
-## Alpha Vantage API Key (Dividend Features)
+## Dividend Data API Keys (FMP + Alpha Vantage)
 
-MarketMind uses [Alpha Vantage](https://www.alphavantage.co/) as the primary source for dividend history. It provides the complete ex-dividend and payment-date record for each ticker, which is what drives:
+MarketMind sources dividend history from two providers, routed by exchange
+— see [DIVIDEND_AUTOMATION.md](DIVIDEND_AUTOMATION.md#data-sources) for the
+full rationale — falling back to yfinance if both are unavailable. Together
+they drive:
 
 - **Dividend growth rates** (1Y and 5Y) shown in the portfolio Income and Fundamentals tabs
 - **Estimated payment dates** displayed in the transaction ledger
 - **Chowder Number** (dividend yield + 5Y growth rate)
+- **Buy Yield** on purchases (`declaration_date`-aware, see DIVIDEND_AUTOMATION.md)
 
-Without the key the app falls back to yfinance, which covers basic dividend amounts but has limited payment-date history and may produce less accurate growth calculations.
+Without either key the app falls back to yfinance, which covers basic
+dividend amounts but has limited payment-date history and may produce less
+accurate growth calculations.
 
-### Getting a free key
+### Getting free keys
 
+**FMP** (US-listed stocks — required for those to get full history):
+1. Go to [financialmodelingprep.com](https://site.financialmodelingprep.com/) and create a free account.
+2. The free tier allows 250 API calls per day.
+3. Add the key to `.env`: `FMP_API_KEY=your_key_here`
+
+**Alpha Vantage** (everything else, e.g. LSE-listed stocks — FMP's free tier blocks non-US symbols outright):
 1. Go to [alphavantage.co/support/#api-key](https://www.alphavantage.co/support/#api-key) and request a free key.
-2. The free tier allows 25 API calls per day, which is sufficient for a personal portfolio of up to ~25 tickers per sync.
-3. Add the key to `.env`:
-
-```env
-ALPHA_VANTAGE_API_KEY=your_key_here
-```
+2. The free tier allows 25 API calls per day — plenty once only non-US symbols are routed here.
+3. Add the key to `.env`: `ALPHA_VANTAGE_API_KEY=your_key_here`
 
 Then restart the web container:
 
@@ -99,16 +107,20 @@ Then restart the web container:
 docker compose restart web
 ```
 
-### What degrades without the key
+### What degrades without a key
 
-| Feature | With Alpha Vantage | Without (yfinance fallback) |
+| Feature | With FMP/Alpha Vantage | Without (yfinance fallback) |
 |---|---|---|
 | Dividend history | Full history with payment dates | Amounts only, no payment dates |
 | Payment date in ledger | Exact date | Estimated (ex-date used as proxy, marked `ex`) |
 | Div Growth 1Y / 5Y | Accurate CAGR from complete history | May be inaccurate or unavailable |
 | Chowder Number | Reliable | May be missing or wrong |
 
-> The free Alpha Vantage tier is rate-limited to 25 requests/day. If you have a large portfolio and hit the limit during a sync, the app automatically falls back to yfinance for the remaining tickers. Premium tiers remove this constraint.
+> If you only set one key, that provider only covers the exchanges it's
+> routed for (US-listed for FMP, everything else for Alpha Vantage) —
+> stocks routed to the missing key's provider fall back to yfinance. If you
+> have a large portfolio and hit a provider's daily cap during a sync, the
+> app automatically falls back to yfinance for the remaining tickers.
 
 ---
 
@@ -201,7 +213,7 @@ Two idempotent daily cron jobs, registered via `make setup-cron` /
 | Time | Script | Purpose |
 |---|---|---|
 | 8:00 AM | `scripts/backup_db.sh` | Encrypted daily DB backup (see `BACKUP_OFFSITE.md` for the off-site copy) |
-| 8:30 AM | `scripts/backfill_dividend_data.sh` | Backfills dividend `declaration_date` from Alpha Vantage and recomputes Buy Yield — see `DIVIDEND_AUTOMATION.md` |
+| 8:30 AM | `scripts/backfill_dividend_data.sh` | Backfills dividend `declaration_date` from FMP/Alpha Vantage and recomputes Buy Yield — see `DIVIDEND_AUTOMATION.md` |
 
 Both are safe to rerun manually and log to `backups/*.log`.
 
