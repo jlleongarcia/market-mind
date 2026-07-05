@@ -19,10 +19,16 @@ No ETF in the database has `declaration_date` populated yet: **IDUS.L 0/54**,
    symbols came up in the daily backfill rotation, or
 2. Alpha Vantage's `DIVIDENDS` endpoint doesn't cover these symbols at all.
 
-**Task:** check again after the daily cron (8:30 AM) has had a few more
-attempts — if either stock still shows 0 after several days where the
-backfill log shows it was actually queried (not skipped for quota), that
-points to (2). Quick check:
+**Status as of 2026-07-05:** still unresolved, and today's data doesn't move
+it either way. `declaration_date_checked` was only added yesterday
+(2026-07-04), so today's 8:30 AM cron was the *first* run since it landed —
+and it hit Alpha Vantage's rate limit on the very first stock in the
+rotation (`ADP`, 1/26), so **zero** of the 26 stocks got checked today, not
+just these two. That's consistent with the quota having already been spent
+overnight (e.g. manual testing right after deploying the feature), not a
+new bug. Need a few clean cron runs — where the log shows stocks actually
+being queried past the point these two would come up — before (1) vs (2)
+can be distinguished. Quick check:
 
 ```bash
 docker exec market-mind-web-1 python manage.py shell -c "
@@ -32,18 +38,6 @@ for sym in ['IDUS.L','DGRW.L']:
           '/', Dividend.objects.filter(stock__symbol=sym).count())
 "
 ```
-
-**Also check:** `auto_record_dividends` (`portfolio/services.py:952`) currently
-creates an Activity-ledger entry as soon as a `research.Dividend` row exists
-and the shares-held-before-ex-date eligibility check passes — there's no
-check that the ex-date (let alone `payment_date`) has actually occurred yet.
-Since AV can report a dividend that's been declared but hasn't gone ex yet
-(seen live, e.g. MSFT's next-quarter row), this means a *future*, not-yet-paid
-dividend could already show up in the Activity ledger as if it were real
-income received. Task: consider gating ledger creation on `payment_date <=
-today` (falling back to `ex_dividend_date <= today` when `payment_date` is
-unknown) instead of only checking entitlement, so the ledger reflects
-dividends actually paid, not merely ones the user is eligible for.
 
 ---
 
@@ -244,3 +238,19 @@ get checked and recorded.
 
 This sync is **user-triggered only** — it is not run by the daily cron
 above, and won't create ledger entries on its own.
+
+### Only records dividends actually paid, not merely declared
+
+Holding shares before the ex-date makes a user *entitled* to a dividend, but
+Alpha Vantage can report one that's been declared and already has an
+ex-date without it having been paid yet (or even before it's gone ex at
+all) — e.g. MSFT's next-quarter row showing up in `research.Dividend` ahead
+of time. Recording that immediately would put a future, not-yet-received
+payment in the Activity ledger as if it were real income already banked.
+
+So ledger creation is gated on the dividend having actually occurred:
+`payment_date <= today`, falling back to `ex_dividend_date <= today` when
+`payment_date` is unknown. A dividend that fails this check is simply left
+uncreated — since the sync is re-run from scratch each time (idempotent,
+keyed on symbol + ex-date), it gets picked up automatically on a later sync
+once its payment date has passed.

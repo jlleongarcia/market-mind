@@ -1129,6 +1129,15 @@ class PortfolioCalculationService:
             # entry sorts and displays correctly.
             payment_date = getattr(div, 'payment_date', None)
 
+            # Entitlement (shares held) isn't enough on its own — Alpha Vantage
+            # can report a dividend that's been declared but hasn't actually
+            # been paid yet, which would otherwise show up in the ledger as
+            # income already received. Gate on the dividend having actually
+            # occurred: payment_date when known, else ex_date as a proxy.
+            payable_date = payment_date or ex_date
+            if payable_date > date.today():
+                continue
+
             total_amount = (div.amount * shares).quantize(Decimal('0.01'))
 
             rate = PortfolioCalculationService.get_withholding_tax_rate(portfolio.user, div.stock)
