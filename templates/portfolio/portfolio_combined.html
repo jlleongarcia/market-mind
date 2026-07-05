@@ -235,14 +235,17 @@
             <span class="badge badge-neutral" id="ledgerCount" style="margin-left:6px;">{{ ledger|length }}</span>
         </span>
         <div class="ledger-legend" id="ledgerLegend">
-            <span class="tx-badge buy" data-type="buy" title="Click to filter">Buy</span>
-            <span class="tx-badge sell" data-type="sell" title="Click to filter">Sell</span>
-            <span class="tx-badge div" data-type="div" title="Click to filter">Dividend</span>
-            <span class="tx-badge spof" data-type="spof" title="Click to filter">Spin-Off</span>
-            <span class="tx-badge int" data-type="int" title="Click to filter">Interest</span>
-            <span class="tx-badge dep" data-type="dep" title="Click to filter">Deposit</span>
-            <span class="tx-badge wit" data-type="wit" title="Click to filter">Withdrawal</span>
-            <span class="tx-badge exc" data-type="exc" title="Click to filter">Exchange</span>
+            <span class="tx-badge buy" data-type="buy" title="Click to hide Buy">Buy</span>
+            <span class="tx-badge sell" data-type="sell" title="Click to hide Sell">Sell</span>
+            <span class="tx-badge div" data-type="div" title="Click to hide Dividend">Dividend</span>
+            <span class="tx-badge spof" data-type="spof" title="Click to hide Spin-Off">Spin-Off</span>
+            <span class="tx-badge int" data-type="int" title="Click to hide Interest">Interest</span>
+            <span class="tx-badge dep" data-type="dep" title="Click to hide Deposit">Deposit</span>
+            <span class="tx-badge wit" data-type="wit" title="Click to hide Withdrawal">Withdrawal</span>
+            <span class="tx-badge exc" data-type="exc" title="Click to hide Exchange">Exchange</span>
+            <span class="ledger-legend-sep"></span>
+            <button type="button" class="ledger-legend-action" id="ledgerSelectAll">All</button>
+            <button type="button" class="ledger-legend-action" id="ledgerSelectNone">None</button>
         </div>
     </div>
     <div class="table-wrap">
@@ -345,6 +348,14 @@
         const legendBadges = Array.from(ledgerLegend.querySelectorAll('.tx-badge'));
         const mutedTypes   = new Set();
         const ledgerCount  = document.getElementById('ledgerCount');
+        const selectAllBtn = document.getElementById('ledgerSelectAll');
+        const selectNoneBtn = document.getElementById('ledgerSelectNone');
+
+        function setBadgeState(badge, muted) {
+            const label = badge.textContent;
+            badge.classList.toggle('tx-badge-muted', muted);
+            badge.title = muted ? `Click to show ${label}` : `Click to hide ${label}`;
+        }
 
         function applyLedgerFilter() {
             let visible = 0;
@@ -368,14 +379,28 @@
                 const type = badge.dataset.type;
                 if (mutedTypes.has(type)) {
                     mutedTypes.delete(type);
-                    badge.classList.remove('tx-badge-muted');
                 } else {
                     mutedTypes.add(type);
-                    badge.classList.add('tx-badge-muted');
                 }
+                setBadgeState(badge, mutedTypes.has(type));
                 applyLedgerFilter();
             });
         });
+
+        if (selectAllBtn) {
+            selectAllBtn.addEventListener('click', () => {
+                mutedTypes.clear();
+                legendBadges.forEach(badge => setBadgeState(badge, false));
+                applyLedgerFilter();
+            });
+        }
+        if (selectNoneBtn) {
+            selectNoneBtn.addEventListener('click', () => {
+                legendBadges.forEach(badge => mutedTypes.add(badge.dataset.type));
+                legendBadges.forEach(badge => setBadgeState(badge, true));
+                applyLedgerFilter();
+            });
+        }
     }
 
     // ── Allocation doughnut ───────────────────────────────────────

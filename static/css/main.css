@@ -1151,14 +1151,45 @@ textarea.form-control { resize: vertical; min-height: 90px; }
 }
 .ledger-legend .tx-badge {
     cursor: pointer;
-    transition: opacity 0.15s, filter 0.15s;
+    transition: opacity 0.15s, filter 0.15s, box-shadow 0.15s, transform 0.1s;
     user-select: none;
+    box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.08) inset;
 }
-.ledger-legend .tx-badge:hover { opacity: 0.8; }
+.ledger-legend .tx-badge:hover {
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18);
+    transform: translateY(-1px);
+}
+.ledger-legend .tx-badge:active { transform: translateY(0) scale(0.95); }
 .ledger-legend .tx-badge.tx-badge-muted {
-    opacity: 0.35;
-    filter: grayscale(60%);
+    opacity: 0.5;
+    filter: grayscale(100%);
+    text-decoration: line-through;
+    box-shadow: none;
 }
+.ledger-legend .tx-badge.tx-badge-muted:hover {
+    opacity: 0.75;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.1);
+}
+
+.ledger-legend-sep {
+    width: 1px;
+    height: 14px;
+    background: var(--border);
+    margin: 0 2px;
+}
+.ledger-legend-action {
+    background: none;
+    border: none;
+    padding: 0;
+    font-family: inherit;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+.ledger-legend-action:hover { color: var(--accent); }
 
 /* ============================================
    Yearly summary
