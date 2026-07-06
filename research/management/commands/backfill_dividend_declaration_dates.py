@@ -1,16 +1,31 @@
 """
 Management command to backfill declaration_date on existing Dividend records
 from FMP (US-listed stocks) or Alpha Vantage (everything else — FMP's free
-tier blocks non-US symbols outright). Intended to run daily via cron (see
-Makefile setup-cron target). Alpha Vantage's free tier caps out at 25
-requests/day, which is why routing US symbols to FMP (250 requests/day)
-matters: with only ~2 LSE symbols left needing Alpha Vantage, its thin quota
-is no longer shared across the whole stock list. Each run only targets
-stocks that still have a row (since ~2020, Alpha Vantage's declaration_date
+tier blocks non-US symbols outright, and additionally premium-gates a subset
+of well-known US tickers too, e.g. CAT/HON/MO/WDS — see the FMP-failure
+fallback below). Intended to run daily via cron (see Makefile setup-cron
+target). Alpha Vantage's free tier caps out at 25 requests/day, which is why
+routing US symbols to FMP (250 requests/day) matters: with only ~2 LSE
+symbols needing Alpha Vantage as their primary source, its thin quota is no
+longer shared across the whole stock list. Each run only targets stocks
+that still have a row (since ~2020, Alpha Vantage's declaration_date
 coverage start — see below) that hasn't been checked yet, so it costs
 nothing once a row is either filled in or confirmed absent, and safely
 catches up newly-added stocks whose data initially came from the yfinance
 fallback.
+
+When an FMP-routed stock's request fails for any reason — including FMP's
+per-symbol premium gate, not just a genuine rate limit — this command falls
+back to trying Alpha Vantage before giving up. That's deliberately confined
+to this command and not shared with save_dividends' ordinary sync path
+(research/services.py): this cron runs sequentially and throttled by
+--delay, so it's safe to spend Alpha Vantage's near-entirely-unused spare
+quota here, whereas save_dividends can run from parallel, uncoordinated
+contexts (e.g. auto_record_dividends' ThreadPoolExecutor) where the same
+fallback could reintroduce the quota contention the FMP/AV split was built
+to fix. Stocks are processed Alpha-Vantage-primary-first specifically so
+that fallback spending never starves the handful of genuinely AV-only
+(non-US) symbols of their own quota.
 
 A row is "checked" (declaration_date_checked=True) once the routed source has
 genuinely responded for its exact ex-date — whether or not it had a
@@ -74,23 +89,46 @@ class Command(BaseCommand):
                 dividends__date__gte=AV_DECLARATION_DATE_COVERAGE_START,
             ).distinct()
 
-        stock_count = stocks.count()
+        fetcher = StockDataFetcher()
+
+        # Alpha Vantage-primary (non-US) stocks first: their 25/day quota is
+        # dedicated to a small handful of symbols and should never be starved
+        # by the FMP-fallback attempts below for FMP-primary (US) stocks.
+        stocks = sorted(stocks, key=lambda s: fetcher.dividend_source_name(s) == 'FMP')
+        stock_count = len(stocks)
         self.stdout.write(f"Backfilling declaration_date for {stock_count} stock(s)\n")
 
-        fetcher = StockDataFetcher()
         total_updated = 0
         total_failed = 0
 
         for i, stock in enumerate(stocks, 1):
-            source = fetcher.dividend_source_name(stock)
-            self.stdout.write(f"[{i}/{stock_count}] {stock.symbol} (via {source})...")
+            primary_source = fetcher.dividend_source_name(stock)
+            self.stdout.write(f"[{i}/{stock_count}] {stock.symbol} (via {primary_source})...")
 
-            data = fetcher._fetch_dividends_primary(stock)
+            source = primary_source
+            if primary_source == 'FMP':
+                data = fetcher._fetch_dividends_fmp(stock.symbol)
+                if data is None:
+                    # FMP failed — including the "Special Endpoint" premium gate FMP
+                    # applies to a subset of well-known US tickers regardless of the
+                    # US/non-US split (confirmed live for CAT/HON/MO/WDS: HTTP 402,
+                    # not a rate limit). Fall back to Alpha Vantage: its 25/day quota
+                    # sits almost entirely unused once the genuinely AV-only (non-US)
+                    # stocks above are already checked, so there's usually room to
+                    # spare rather than let these retry FMP forever for nothing.
+                    if i < stock_count:
+                        time.sleep(delay)
+                    self.stdout.write(f"    ...FMP failed, trying Alpha Vantage instead...")
+                    data = fetcher._fetch_dividends_alphavantage(stock.symbol)
+                    source = 'Alpha Vantage (FMP fallback)'
+            else:
+                data = fetcher._fetch_dividends_alphavantage(stock.symbol)
+
             if data is None:
                 # Transient failure (rate limit, request error, missing key) — worth
                 # retrying tomorrow, so don't touch declaration_date_checked.
                 total_failed += 1
-                self.stdout.write(self.style.WARNING(f"  ⚠ {stock.symbol}: no {source} data"))
+                self.stdout.write(self.style.WARNING(f"  ⚠ {stock.symbol}: no data from {source}"))
                 if i < stock_count:
                     time.sleep(delay)
                 continue

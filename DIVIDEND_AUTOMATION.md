@@ -22,17 +22,22 @@ doc (which describes how the system works *today*) so they don't get lost:
   same clauses — redistribution of derived data, storage/caching on
   cancellation, personal- vs. commercial-use terms — before leaning on it
   further.
-- **Watch Alpha Vantage now that its quota is dedicated to ~2–3 LSE
-  symbols** instead of the whole stock list. Confirm over the next several
-  daily cron runs that quota contention is genuinely gone (no more
-  `"no data ... rate limit"` on the very first stock in the log).
+- **Watch Alpha Vantage's quota now that two things share it**: the
+  handful of genuinely AV-only (non-US) symbols, *and* the new FMP-failure
+  fallback (below) for premium-gated US tickers like `CAT`/`HON`/`MO`/`WDS`.
+  Both are small today, but confirm over the next several daily cron runs
+  that the fallback's extra spending never actually starves the AV-primary
+  symbols (they're processed first specifically to prevent this — worth
+  checking the log order holds).
 - **Watch FMP's real daily request volume** against its 250/day free cap
   once live in production — fine now with ~25 US tickers, but worth
   revisiting if the tracked stock list grows substantially.
-- **Confirm the hybrid code actually shipped.** It was tested locally
-  against a throwaway Docker image (see `Data sources`, below) — verify
-  the next GHCR image rebuild/deploy contains it before trusting the next
-  8:30 AM cron run's results.
+- **No way to know in advance which US tickers FMP premium-gates** short of
+  calling it live — `CAT`, `HON`, `MO`, `WDS` were only discovered by
+  checking why they stayed at 0 declared after the hybrid went live. Worth
+  periodically re-running the per-stock audit (see `Data sources`) to catch
+  any newly-added stock that turns out to need the Alpha Vantage fallback
+  too.
 
 ---
 
@@ -157,8 +162,13 @@ falling back to yfinance if the routed source fails:
   1990s for most tickers (deeper than Alpha Vantage). **Blocks non-US
   symbols outright** even with a paid-for key ("Premium Query Parameter"),
   which is why non-US stocks are routed to Alpha Vantage instead — this
-  isn't optional. Free-tier quota: **250 requests/day**, comfortably
-  covering the whole US-listed stock list with room to spare.
+  isn't optional. It **also premium-gates a subset of well-known US
+  tickers** the same way — confirmed live for `CAT`, `HON`, `MO`, `WDS`
+  (HTTP 402, `"Premium Query Parameter: Special Endpoint..."`, not a rate
+  limit) — so the FMP/Alpha Vantage split isn't purely a US/non-US
+  boundary; some US names need the fallback below too. Free-tier quota:
+  **250 requests/day**, comfortably covering the whole US-listed stock list
+  with room to spare.
 - **Alpha Vantage `DIVIDENDS` endpoint (everything else — LSE etc.)** — same
   single-request-per-symbol shape, also provides `declaration_date` (and
   `payment_date`), but coverage only starts around **2020**; older
@@ -218,6 +228,24 @@ automatically:
   never touches `amount`/`payment_date`. Routes each stock to FMP or Alpha
   Vantage the same way `save_dividends` does (`dividend_source_name`), so US
   stocks no longer compete with LSE ones for Alpha Vantage's 25/day cap.
+
+  **FMP-failure fallback (this command only):** if an FMP-routed stock's
+  request fails for any reason — including FMP's per-symbol premium gate,
+  not just a genuine rate limit — this command retries via Alpha Vantage
+  before giving up. Confirmed live: `CAT`/`HON`/`MO`/`WDS` are all
+  premium-gated on FMP but have full `declaration_date` history on Alpha
+  Vantage, previously wasted as a permanent, silent daily failure (see
+  above). Stocks are processed **Alpha-Vantage-primary (non-US) first**,
+  specifically so this fallback's spending never starves the handful of
+  genuinely AV-only symbols of their own quota. Deliberately *not* shared
+  with `save_dividends`'s ordinary sync path: this cron runs sequentially
+  and throttled by `--delay`, so it's safe to spend Alpha Vantage's
+  near-entirely-unused spare quota here, whereas `save_dividends` can run
+  from parallel, uncoordinated contexts (e.g. `auto_record_dividends`'s
+  `ThreadPoolExecutor`) where the same fallback could reintroduce the quota
+  contention the FMP/Alpha Vantage split was built to fix in the first
+  place.
+
   Only targets stocks with a dividend dated on/after a **fixed** `2020-01-01`
   boundary (Alpha Vantage's observed `declaration_date` coverage start —
   shared as a conservative floor for FMP too, even though FMP's own coverage
