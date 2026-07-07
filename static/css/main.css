@@ -435,6 +435,24 @@ table.data-table {
 
 .data-table thead th.text-right { text-align: right; }
 
+.data-table thead th.sortable-col {
+    cursor: pointer;
+    user-select: none;
+}
+
+.data-table thead th.sortable-col:hover { color: var(--text-primary); }
+
+.data-table thead th.sortable-col::after {
+    content: '\2195';
+    display: inline-block;
+    margin-left: 4px;
+    opacity: 0.35;
+    font-size: 0.9em;
+}
+
+.data-table thead th.sortable-col.sort-asc::after { content: '\2191'; opacity: 1; }
+.data-table thead th.sortable-col.sort-desc::after { content: '\2193'; opacity: 1; }
+
 .data-table tbody tr {
     border-bottom: 1px solid var(--border);
     transition: background 0.12s;

@@ -430,6 +430,8 @@ def portfolio_detail_view(request, pk):
                 chips.append(f"Per Share: {_fmt_cur(tx_cur, price)}")
             if commission:
                 chips.append(f"Commission: {_fmt_cur(tx_cur, commission)}")
+            if tx.tax:
+                chips.append(f"Tax Withheld: {_fmt_cur(tx_cur, float(tx.tax))}")
             desc = f"Dividend — {tx.symbol}"
             if qty:
                 desc += f" ({_fmt_qty(qty)} sh)"
@@ -437,7 +439,7 @@ def portfolio_detail_view(request, pk):
                 'tx_id': tx.id, 'date': tx_date,
                 'type': 'div', 'label': 'Dividend',
                 'description': desc,
-                'net_display': _net_display('positive', tx_cur, price * qty - commission),
+                'net_display': _net_display('positive', tx_cur, price * qty - commission - float(tx.tax)),
                 'net_class': 'positive',
                 'extra': '||'.join(chips) if chips else None,
             })
@@ -455,13 +457,15 @@ def portfolio_detail_view(request, pk):
             chips = []
             if tx.broker:
                 chips.append(f"Broker: {tx.broker}")
+            if tx.tax:
+                chips.append(f"Tax Withheld: {_fmt_cur(tx_cur, float(tx.tax))}")
             if tx.notes:
                 chips.append(f"Notes: {tx.notes}")
             ledger.append({
                 'tx_id': tx.id, 'date': tx_date,
                 'type': 'int', 'label': 'Interest',
                 'description': "Interest earned",
-                'net_display': _net_display('positive', tx_cur, price),
+                'net_display': _net_display('positive', tx_cur, price - float(tx.tax)),
                 'net_class': 'positive',
                 'extra': '||'.join(chips) if chips else None,
             })
@@ -553,18 +557,19 @@ def portfolio_detail_view(request, pk):
         p = float(tx.price)
         q = float(tx.quantity)
         c = float(tx.commission)
+        t = float(tx.tax)
         if tx.transaction_type == 'DEP':
             cash_by_currency[cur] += p
         elif tx.transaction_type == 'WIT':
             cash_by_currency[cur] -= p
         elif tx.transaction_type == 'INT':
-            cash_by_currency[cur] += p
+            cash_by_currency[cur] += (p - t)
         elif tx.transaction_type == 'BUY':
             cash_by_currency[cur] -= (p * q + c)
         elif tx.transaction_type == 'SELL':
             cash_by_currency[cur] += (p * q - c)
         elif tx.transaction_type == 'DIV':
-            cash_by_currency[cur] += (p * q - c)
+            cash_by_currency[cur] += (p * q - c - t)
         elif tx.transaction_type == 'EXC':
             from_cur = tx.from_currency or cur
             to_cur = tx.to_currency or cur
@@ -592,6 +597,7 @@ def portfolio_detail_view(request, pk):
         p = float(tx.price)
         q = float(tx.quantity)
         c = float(tx.commission)
+        t = float(tx.tax)
 
         def _native(fallback: float) -> float:
             return float(tx.native_amount) if tx.native_amount else fallback
@@ -601,13 +607,13 @@ def portfolio_detail_view(request, pk):
         elif tx.transaction_type == 'WIT':
             yearly[year]['withdrawals'] += _native(p);  yearly_by_cur[year][cur]['withdrawals'] += p
         elif tx.transaction_type == 'INT':
-            yearly[year]['interest']    += _native(p);  yearly_by_cur[year][cur]['interest']    += p
+            yearly[year]['interest']    += _native(p - t);  yearly_by_cur[year][cur]['interest']    += (p - t)
         elif tx.transaction_type == 'BUY':
             yearly[year]['invested']    += _native(p * q + c); yearly_by_cur[year][cur]['invested']    += (p * q + c)
         elif tx.transaction_type == 'SELL':
             yearly[year]['sold']        += _native(p * q - c); yearly_by_cur[year][cur]['sold']        += (p * q - c)
         elif tx.transaction_type in ('DIV', 'SPOF'):
-            yearly[year]['dividends']   += _native(p * q - c); yearly_by_cur[year][cur]['dividends']   += (p * q - c)
+            yearly[year]['dividends']   += _native(p * q - c - t); yearly_by_cur[year][cur]['dividends']   += (p * q - c - t)
         # EXC: currency swap, not counted in yearly summary
 
     for div in portfolio.dividends.all():
@@ -841,7 +847,7 @@ def transaction_create_view(request, portfolio_id):
                     if tx_type == 'BUY':
                         total_in_stock_cur += Decimal(commission_value)
                     else:
-                        total_in_stock_cur -= Decimal(commission_value)
+                        total_in_stock_cur -= Decimal(commission_value) + Decimal(tax_value)
                     native_amt = total_in_stock_cur * fx_rate
 
                 if fx_source == 'unavailable':
@@ -1038,7 +1044,7 @@ def transaction_edit_view(request, portfolio_id, tx_id):
                     if tx_type == 'BUY':
                         total_in_stock_cur += Decimal(commission_value)
                     else:
-                        total_in_stock_cur -= Decimal(commission_value)
+                        total_in_stock_cur -= Decimal(commission_value) + Decimal(tax_value)
                     native_amt = total_in_stock_cur * fx_rate
 
             # Apply updates

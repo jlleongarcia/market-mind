@@ -186,6 +186,10 @@ CELERY_RESULT_BACKEND = 'redis://redis:6379/0'
 
 # Stock API Keys (if needed)
 ALPHA_VANTAGE_API_KEY = config('ALPHA_VANTAGE_API_KEY', default='')
+# Temporary, paid-for-one-month upgrade (75 req/min, no daily cap) used only
+# by the one-off backfill_dividend_dates_premium command — never touches the
+# free-tier key or the daily cron above. See DIVIDEND_AUTOMATION.md.
+ALPHA_VANTAGE_PREMIUM_API_KEY = config('ALPHA_VANTAGE_PREMIUM_API_KEY', default='')
 FINNHUB_API_KEY = config('FINNHUB_API_KEY', default='')
 FMP_API_KEY = config('FMP_API_KEY', default='')
 

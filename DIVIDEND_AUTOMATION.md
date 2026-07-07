@@ -38,6 +38,12 @@ doc (which describes how the system works *today*) so they don't get lost:
   periodically re-running the per-stock audit (see `Data sources`) to catch
   any newly-added stock that turns out to need the Alpha Vantage fallback
   too.
+- **Alpha Vantage premium key expires ~2026-08-07** (one-month purchase).
+  `ALPHA_VANTAGE_PREMIUM_API_KEY` and `backfill_dividend_dates_premium`
+  (see `Temporary premium blitz`, below) become dead weight once it lapses
+  — not urgent to remove either (they're inert without a valid key, and
+  the free-tier daily cron doesn't touch them), but worth cleaning up
+  eventually rather than leaving stale.
 
 ---
 
@@ -298,6 +304,57 @@ Run manually any time:
 ```bash
 docker exec market-mind-web-1 python manage.py backfill_dividend_declaration_dates
 docker exec market-mind-web-1 python manage.py recompute_buy_yields
+```
+
+---
+
+## Temporary premium blitz (one-off, not cron) — 2026-07 only
+
+A one-month Alpha Vantage **premium** key (75 req/min, no daily cap) was
+purchased on 2026-07-07 specifically to clear the backlog the free-tier
+25/day cap couldn't reach quickly. `backfill_dividend_dates_premium` (+
+`scripts/backfill_dividend_data_premium.sh`) is a **separate, self-contained
+tool** for this — it duplicates the small amount of Alpha Vantage fetch/parse
+logic it needs rather than importing from `research/services.py`, so it
+never touches the free-tier key, the daily cron command, or anything else
+already in place. Not registered in cron or the Makefile; run manually as
+needed during the paid month.
+
+Three deliberate differences from the daily cron command:
+- **Processes every stock unconditionally** (or a `--symbols` subset),
+  ignoring `declaration_date_checked` — most stocks are already "resolved"
+  under the free-tier logic and would be skipped forever by the daily cron,
+  but many were still missing `payment_date`, which the free-tier command
+  only fills as a side effect of stocks it happens to revisit.
+- **Alpha Vantage only, no FMP routing** — pointless to route around
+  Alpha Vantage's limits when they're effectively gone for a month.
+- **No `2020-01-01` coverage-start boundary** — that boundary exists on the
+  free-tier command purely to avoid wasting scarce quota on symbols with no
+  realistic chance of a match. With the cap effectively gone, there's no
+  reason to skip older rows.
+
+First real run (2026-07-07, `--delay 1`, ~30s for 30 stocks): **23
+`declaration_date` + 88 `payment_date` rows recovered**, overall
+`payment_date` coverage 449→625 across the DB. Most of that came from
+`CSL` (a stock never previously touched — 23+22 new) and completing
+`payment_date` for `HON`/`KO`/`MO` (already had `declaration_date` from the
+earlier CAT/HON/MO/WDS fallback work, but not `payment_date` until now).
+Also extended the "confirmed permanently empty" marking on `IDUS.L`/`DGRW.L`
+beyond the 2020 boundary the free-tier command respects (`DGRW.L`: 11 more
+pre-2020 rows marked checked).
+
+**Residual gap this can't close, by design:**
+- `JNJ`/`KO`/`LMT`/`NKE`/`PEP`/`VZ`/`INTC` still show `declaration_date`
+  well ahead of `payment_date` (e.g. JNJ: 141 vs 23) even after this run —
+  their deep `declaration_date` history came from FMP, which reaches
+  further back than Alpha Vantage's own coverage; for those older
+  ex-dates, Alpha Vantage's response apparently doesn't carry a
+  `payment_date` either, so there's nothing further to recover from either
+  source.
+
+```bash
+./scripts/backfill_dividend_data_premium.sh                      # every stock
+./scripts/backfill_dividend_data_premium.sh --symbols AAPL MSFT  # subset
 ```
 
 ---

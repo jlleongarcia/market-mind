@@ -83,7 +83,7 @@
         <!-- OVERVIEW TAB: Symbol · Company · Shares · Invested · Price · Value · Return% -->
         <div class="tab-panel active" id="tab-overview">
         <div class="table-wrap">
-        <table class="data-table">
+        <table class="data-table sortable">
             <thead><tr>
                 <th>Symbol</th>
                 <th>Company</th>
@@ -127,7 +127,7 @@
         <!-- INCOME TAB: Symbol · Company · Shares · Yield% · YoC% · Payout% · FCF Payout% · Div Cash · Div Growth 1Y · Div Growth 5Y · Chowder# -->
         <div class="tab-panel" id="tab-income">
         <div class="table-wrap">
-        <table class="data-table">
+        <table class="data-table sortable">
             <thead><tr>
                 <th>Symbol</th>
                 <th>Company</th>
@@ -187,7 +187,7 @@
         <!-- FUNDAMENTALS TAB: Symbol · Company · P/E · Fwd P/E · Beta · 52W High · 52W Low · vs 52W High · 52W Range% -->
         <div class="tab-panel" id="tab-fundamentals">
         <div class="table-wrap">
-        <table class="data-table">
+        <table class="data-table sortable">
             <thead><tr>
                 <th>Symbol</th>
                 <th>Company</th>
@@ -429,6 +429,47 @@
             document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
             btn.classList.add('active');
             document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+        });
+    });
+
+    // ── Sortable table columns ───────────────────────────────────
+    document.querySelectorAll('table.data-table.sortable').forEach(table => {
+        const headerRow = table.querySelector('thead tr');
+        const tbody = table.querySelector('tbody');
+        if (!headerRow || !tbody) return;
+
+        Array.from(headerRow.children).forEach((th, colIndex) => {
+            th.classList.add('sortable-col');
+            th.addEventListener('click', () => {
+                const dir = th.dataset.sortDir === 'asc' ? 'desc' : 'asc';
+                Array.from(headerRow.children).forEach(h => {
+                    delete h.dataset.sortDir;
+                    h.classList.remove('sort-asc', 'sort-desc');
+                });
+                th.dataset.sortDir = dir;
+                th.classList.add(dir === 'asc' ? 'sort-asc' : 'sort-desc');
+
+                const parsed = Array.from(tbody.querySelectorAll('tr')).map(row => {
+                    const raw = (row.children[colIndex]?.textContent || '').trim();
+                    const num = parseFloat(raw.replace(/[^0-9.\-]/g, ''));
+                    return { row, raw, num };
+                });
+                const isNumericCol = parsed.every(p => p.raw === '' || p.raw === '—' || !isNaN(p.num));
+
+                parsed.sort((a, b) => {
+                    if (isNumericCol) {
+                        const aNaN = isNaN(a.num), bNaN = isNaN(b.num);
+                        if (aNaN && bNaN) return 0;
+                        if (aNaN) return 1;
+                        if (bNaN) return -1;
+                        return dir === 'asc' ? a.num - b.num : b.num - a.num;
+                    }
+                    const cmp = a.raw.toLowerCase().localeCompare(b.raw.toLowerCase());
+                    return dir === 'asc' ? cmp : -cmp;
+                });
+
+                parsed.forEach(p => tbody.appendChild(p.row));
+            });
         });
     });
 
