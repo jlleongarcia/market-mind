@@ -224,10 +224,24 @@ with only yfinance data. Two idempotent management commands close that gap
 automatically:
 
 - **`backfill_dividend_declaration_dates`** — update-only: fills in
-  `declaration_date` on existing `Dividend` rows, never creates new ones and
-  never touches `amount`/`payment_date`. Routes each stock to FMP or Alpha
-  Vantage the same way `save_dividends` does (`dividend_source_name`), so US
-  stocks no longer compete with LSE ones for Alpha Vantage's 25/day cap.
+  `declaration_date` **and `payment_date`** on existing `Dividend` rows,
+  never creates new ones and never touches `amount`. Routes each stock to
+  FMP or Alpha Vantage the same way `save_dividends` does
+  (`dividend_source_name`), so US stocks no longer compete with LSE ones
+  for Alpha Vantage's 25/day cap.
+
+  **`payment_date` backfill is a free side effect, not an extra request:**
+  both FMP and Alpha Vantage already return `payment_date` in the exact
+  same response used for `declaration_date`, so filling it in costs
+  nothing beyond what the command already fetches. It's strictly
+  additive — only fills rows where `payment_date` is currently `NULL`,
+  never overwrites an existing value — same safety profile as the
+  `declaration_date` fill. Unlike `declaration_date`, there's no separate
+  "confirmed absent" bookkeeping for it: whether a stock gets re-attempted
+  at all is governed entirely by `declaration_date_checked`, so a row
+  missing only `payment_date` (with `declaration_date` already known)
+  won't be revisited by this command specifically for that gap — the
+  fuller `save_dividends` sync path would pick it up instead.
 
   **FMP-failure fallback (this command only):** if an FMP-routed stock's
   request fails for any reason — including FMP's per-symbol premium gate,

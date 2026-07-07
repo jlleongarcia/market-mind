@@ -1,18 +1,27 @@
 """
-Management command to backfill declaration_date on existing Dividend records
-from FMP (US-listed stocks) or Alpha Vantage (everything else — FMP's free
-tier blocks non-US symbols outright, and additionally premium-gates a subset
-of well-known US tickers too, e.g. CAT/HON/MO/WDS — see the FMP-failure
-fallback below). Intended to run daily via cron (see Makefile setup-cron
-target). Alpha Vantage's free tier caps out at 25 requests/day, which is why
-routing US symbols to FMP (250 requests/day) matters: with only ~2 LSE
-symbols needing Alpha Vantage as their primary source, its thin quota is no
-longer shared across the whole stock list. Each run only targets stocks
-that still have a row (since ~2020, Alpha Vantage's declaration_date
-coverage start — see below) that hasn't been checked yet, so it costs
-nothing once a row is either filled in or confirmed absent, and safely
-catches up newly-added stocks whose data initially came from the yfinance
-fallback.
+Management command to backfill declaration_date and payment_date on existing
+Dividend records from FMP (US-listed stocks) or Alpha Vantage (everything
+else — FMP's free tier blocks non-US symbols outright, and additionally
+premium-gates a subset of well-known US tickers too, e.g. CAT/HON/MO/WDS —
+see the FMP-failure fallback below). Intended to run daily via cron (see
+Makefile setup-cron target). Alpha Vantage's free tier caps out at 25
+requests/day, which is why routing US symbols to FMP (250 requests/day)
+matters: with only ~2 LSE symbols needing Alpha Vantage as their primary
+source, its thin quota is no longer shared across the whole stock list. Each
+run only targets stocks that still have a row (since ~2020, Alpha Vantage's
+declaration_date coverage start — see below) that hasn't been checked yet,
+so it costs nothing once a row is either filled in or confirmed absent, and
+safely catches up newly-added stocks whose data initially came from the
+yfinance fallback.
+
+payment_date is filled in as a side effect of the same request — both
+providers already return it alongside declaration_date, so there's no extra
+API cost to using it. Unlike declaration_date, there's no "confirmed
+absent, stop asking" bookkeeping for payment_date: whether a stock keeps
+getting re-attempted is governed entirely by declaration_date_checked, so a
+row missing only payment_date (declaration_date already known) simply won't
+be revisited by this command again — see save_dividends for the fuller sync
+path that would eventually pick that up instead.
 
 When an FMP-routed stock's request fails for any reason — including FMP's
 per-symbol premium gate, not just a genuine rate limit — this command falls
@@ -35,9 +44,10 @@ freeing quota for stocks that can actually still be fixed — see
 save_dividends in research/services.py for where checked is set on ordinary
 syncs too.
 
-Update-only: never creates new Dividend rows and never touches amount /
-payment_date on existing ones — it only fills in declaration_date for rows
-that already exist in the database.
+Update-only: never creates new Dividend rows and never touches amount on
+existing ones — it only fills in declaration_date and payment_date (only
+when currently null; never overwrites an existing value) for rows that
+already exist in the database.
 """
 import time
 from datetime import date
@@ -60,7 +70,7 @@ AV_DECLARATION_DATE_COVERAGE_START = date(2020, 1, 1)
 
 
 class Command(BaseCommand):
-    help = 'Backfill declaration_date on existing Dividend records from FMP/Alpha Vantage (update-only, no new rows)'
+    help = 'Backfill declaration_date and payment_date on existing Dividend records from FMP/Alpha Vantage (update-only, no new rows)'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -96,9 +106,10 @@ class Command(BaseCommand):
         # by the FMP-fallback attempts below for FMP-primary (US) stocks.
         stocks = sorted(stocks, key=lambda s: fetcher.dividend_source_name(s) == 'FMP')
         stock_count = len(stocks)
-        self.stdout.write(f"Backfilling declaration_date for {stock_count} stock(s)\n")
+        self.stdout.write(f"Backfilling declaration_date/payment_date for {stock_count} stock(s)\n")
 
         total_updated = 0
+        total_pay_updated = 0
         total_failed = 0
 
         for i, stock in enumerate(stocks, 1):
@@ -151,14 +162,17 @@ class Command(BaseCommand):
                 continue
 
             updated_here = 0
+            pay_updated_here = 0
             for entry in data:
                 ex_date_str   = entry.get('ex_dividend_date', '')
                 decl_date_str = entry.get('declaration_date', '')
+                pay_date_str  = entry.get('payment_date', '')
                 if not ex_date_str:
                     continue
 
                 ex_date   = date.fromisoformat(ex_date_str)
                 decl_date = date.fromisoformat(decl_date_str) if decl_date_str and decl_date_str != 'None' else None
+                pay_date  = date.fromisoformat(pay_date_str) if pay_date_str and pay_date_str != 'None' else None
 
                 if decl_date is not None:
                     updated_here += Dividend.objects.filter(
@@ -171,14 +185,30 @@ class Command(BaseCommand):
                         stock=stock, date=ex_date, declaration_date_checked=False,
                     ).update(declaration_date_checked=True)
 
+                # payment_date fills independently of declaration_date — a row can be
+                # missing one, the other, or both, and the source can answer either
+                # independently of the other. Same fill-only-if-null safety as above:
+                # never overwrites an existing value, just a plain filter+update, no
+                # "checked" bookkeeping needed since there's no separate payment_date
+                # retry loop to stop (declaration_date_checked already governs whether
+                # this stock gets re-attempted at all).
+                if pay_date is not None:
+                    pay_updated_here += Dividend.objects.filter(
+                        stock=stock, date=ex_date, payment_date__isnull=True,
+                    ).update(payment_date=pay_date)
+
             total_updated += updated_here
-            self.stdout.write(self.style.SUCCESS(f"  ✓ {stock.symbol}: {updated_here} row(s) updated"))
+            total_pay_updated += pay_updated_here
+            self.stdout.write(self.style.SUCCESS(
+                f"  ✓ {stock.symbol}: {updated_here} declaration_date, {pay_updated_here} payment_date row(s) updated"
+            ))
 
             if i < stock_count:
                 time.sleep(delay)
 
         self.stdout.write(
             f"\n{'='*50}\n"
-            f"Summary: {total_updated} rows updated, {total_failed} stock(s) failed\n"
+            f"Summary: {total_updated} declaration_date rows updated, "
+            f"{total_pay_updated} payment_date rows updated, {total_failed} stock(s) failed\n"
             f"{'='*50}\n"
         )
