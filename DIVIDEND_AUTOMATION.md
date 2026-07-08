@@ -10,43 +10,6 @@ layered on top of the ledger described here.
 
 ---
 
-## 🔜 Near-future checks
-
-Things still open, kept here deliberately separate from the rest of this
-doc (which describes how the system works *today*) so they don't get lost:
-
-- **FMP Terms of Service unreviewed.** We checked Finnhub's and Tiingo's ToS
-  before ruling them out (redistribution/storage clauses, personal-use
-  disqualifiers), but never did the same for FMP before wiring it in as a
-  primary source. Worth reading `financialmodelingprep.com`'s ToS for the
-  same clauses — redistribution of derived data, storage/caching on
-  cancellation, personal- vs. commercial-use terms — before leaning on it
-  further.
-- **Watch Alpha Vantage's quota now that two things share it**: the
-  handful of genuinely AV-only (non-US) symbols, *and* the new FMP-failure
-  fallback (below) for premium-gated US tickers like `CAT`/`HON`/`MO`/`WDS`.
-  Both are small today, but confirm over the next several daily cron runs
-  that the fallback's extra spending never actually starves the AV-primary
-  symbols (they're processed first specifically to prevent this — worth
-  checking the log order holds).
-- **Watch FMP's real daily request volume** against its 250/day free cap
-  once live in production — fine now with ~25 US tickers, but worth
-  revisiting if the tracked stock list grows substantially.
-- **No way to know in advance which US tickers FMP premium-gates** short of
-  calling it live — `CAT`, `HON`, `MO`, `WDS` were only discovered by
-  checking why they stayed at 0 declared after the hybrid went live. Worth
-  periodically re-running the per-stock audit (see `Data sources`) to catch
-  any newly-added stock that turns out to need the Alpha Vantage fallback
-  too.
-- **Alpha Vantage premium key expires ~2026-08-07** (one-month purchase).
-  `ALPHA_VANTAGE_PREMIUM_API_KEY` and `backfill_dividend_dates_premium`
-  (see `Temporary premium blitz`, below) become dead weight once it lapses
-  — not urgent to remove either (they're inert without a valid key, and
-  the free-tier daily cron doesn't touch them), but worth cleaning up
-  eventually rather than leaving stale.
-
----
-
 ## Buy Yield
 
 `Transaction.buy_yield` (BUY transactions only) estimates the forward
@@ -138,6 +101,10 @@ with no ETF/equity branching at all, so ETFs get `declaration_date` and
 `declaration_date_checked` populated (or not) exactly the same way regular
 stocks do.
 
+Accumulating ETFs (e.g. `CSPX.L`) reinvest distributions internally rather
+than paying cash dividends — zero `Dividend` rows for one of these is the
+correct, expected state, not a sync gap.
+
 ### Dividend growth has the same frequency fix
 
 `StockDataFetcher.calculate_dividend_growth` (1Y/5Y growth shown on the
@@ -164,61 +131,63 @@ falling back to yfinance if the routed source fails:
 
 - **FMP `/stable/dividends` (US-listed stocks)** — `Stock.exchange` in
   `{NMS, NYQ, NYSE, NASDAQ}` routes here. Free tier gives full history in a
-  single request per symbol, including `declaration_date`, back to the
-  1990s for most tickers (deeper than Alpha Vantage). **Blocks non-US
-  symbols outright** even with a paid-for key ("Premium Query Parameter"),
-  which is why non-US stocks are routed to Alpha Vantage instead — this
-  isn't optional. It **also premium-gates a subset of well-known US
-  tickers** the same way — confirmed live for `CAT`, `HON`, `MO`, `WDS`
-  (HTTP 402, `"Premium Query Parameter: Special Endpoint..."`, not a rate
-  limit) — so the FMP/Alpha Vantage split isn't purely a US/non-US
-  boundary; some US names need the fallback below too. Free-tier quota:
-  **250 requests/day**, comfortably covering the whole US-listed stock list
-  with room to spare.
+  single request per symbol, including `declaration_date`/`payment_date`,
+  back to the 1990s for most tickers (deeper than Alpha Vantage). **Blocks
+  non-US symbols outright** even with a paid-for key ("Premium Query
+  Parameter"), which is why non-US stocks are routed to Alpha Vantage
+  instead — this isn't optional. It **also premium-gates a subset of
+  well-known US tickers the same way** (e.g. `CAT`, `HON`, `MO`, `WDS` —
+  HTTP 402, `"Premium Query Parameter: Special Endpoint..."`, not a rate
+  limit), with **no way to predict which symbols in advance** short of
+  calling the endpoint live — see the FMP-failure fallback below for how
+  those are still recovered. Free-tier quota: 250 requests/day, comfortably
+  covering the whole US-listed stock list with room to spare.
 - **Alpha Vantage `DIVIDENDS` endpoint (everything else — LSE etc.)** — same
-  single-request-per-symbol shape, also provides `declaration_date` (and
-  `payment_date`), but coverage only starts around **2020**; older
-  dividends will never have a `declaration_date` there, and that's
-  expected — they just use the fallback rule above. Free-tier quota: **25
-  requests/day**, now shared only across the handful of non-US symbols
-  (previously shared across the entire stock list, which used to cause the
-  quota to run out before the first stock in the daily rotation).
+  single-request-per-symbol shape. Has ex-dividend dates and amounts going
+  back decades, but `declaration_date`/`record_date`/`payment_date` are only
+  populated from **~2020 onward** — a hard boundary in Alpha Vantage's own
+  data (present on both free and premium tiers), not a quota effect. Older
+  dividends fall back to the ex-date-only rule for Buy Yield. Free-tier
+  quota: 25 requests/day, dedicated to the handful of non-US symbols plus
+  the FMP-failure fallback below.
 - **yfinance (universal fallback)** — used only when the routed primary
   source is unavailable (missing key, rate limit, premium-gated, request
   error). Has no `declaration_date` at all, so any dividend saved this way
   needs a later backfill pass before Buy Yield can use rule 1 for it.
 
-Both primary sources fetch a symbol's **entire** dividend history
-(`declaration_date`, `ex_date`, `payment_date` all included) in **one**
-request — there's no cheaper way to get these three dates, so this is
-already the minimum possible call count per symbol per refresh.
+Both primary sources fetch a symbol's **entire** dividend history in **one**
+request — there's no cheaper way to get `declaration_date`, `ex_date`, and
+`payment_date`, so this is already the minimum possible call count per
+symbol per refresh.
 
-**Alpha Vantage's free-tier key is capped at 25 requests/day** (FMP's is
-250/day). Expect to see `"FMP dividends no data for X: ..."` or `"Alpha
-Vantage DIVIDENDS no data for X: ... rate limit"` in logs occasionally.
-When that happens, `save_dividends` transparently falls back to yfinance, so
-data keeps flowing — just without `declaration_date` until the next
-successful backfill.
+**Some symbols have no dividend history on either source, permanently —
+confirmed, not a retry-forever situation.** `IDUS.L`, `DGRW.L`, and
+`FUSD.L` (all LSE) return a clean, non-error empty response from Alpha
+Vantage, and FMP can't help either (non-US block). `backfill_dividend_declaration_dates`
+detects this and marks every eligible row `declaration_date_checked`
+immediately instead of retrying forever (see below).
 
-**Not every symbol has dividend history on its routed source, and that's a
-real, permanent answer, not a quota problem.** Confirmed live for two LSE
-ETFs, IDUS.L and DGRW.L: calling Alpha Vantage's `DIVIDENDS` endpoint
-directly (with a delay between calls, to rule out the burst-rate-limit
-false negative) returned a clean, non-error `{"data": []}` for both — zero
-dividend history, ever, not a rate-limit message. FMP can't help either
-(non-US block). These two will permanently rely on the ex-date-only
-fallback rule for Buy Yield. `backfill_dividend_declaration_dates` (below)
-detects this "clean empty response" case and marks every eligible row
-`declaration_date_checked` immediately, instead of retrying forever.
+**Practical coverage ceiling, given the above:** for the ~2020-onward window
+(where both sources can realistically have data), regular equities/ETFs
+land around **~90% `declaration_date` / ~86% `payment_date`** coverage. The
+remaining gaps are individual dividend events where both Alpha Vantage and
+FMP independently have no record of a declaration or payment date — a hole
+in the underlying source data, not a processing backlog. Older dividend
+history often has ex-date and amount but no `declaration_date`/`payment_date`
+at all (falls back to the ex-date-only rule for Buy Yield), and that share
+is expected to stay low permanently given Alpha Vantage's 2020 boundary.
 
-**Other providers evaluated and rejected (2026-07-05):** Finnhub's free tier
-gates *both* of its dividend endpoints behind a paid plan, for any market —
-confirmed via their own published API schema (`"premium": "Premium Access
-Required"`), not just marketing copy. Tiingo's corporate-actions/dividends
-endpoint returned live `403 Forbidden` on a real free-tier key (the same key
-works fine on Tiingo's free EOD-prices endpoint) — their docs say this
-endpoint needs discretionary Beta/enterprise approval from support, not a
-standard free-tier grant. Neither is used anywhere in this codebase.
+**Other providers evaluated, both rejected:** Finnhub gates *both* of its
+dividend endpoints behind a paid plan, for any market — confirmed via their
+own published API schema (`"premium": "Premium Access Required"`), not just
+marketing copy. Tiingo's corporate-actions/dividends endpoint returns
+`403 Forbidden` on a real free-tier key (the same key works fine on
+Tiingo's free EOD-prices endpoint) — their docs say this endpoint needs
+discretionary Beta/enterprise approval from support, not a standard
+free-tier grant. Neither is used anywhere in this codebase. FMP's own
+Terms of Service (redistribution/storage clauses, personal- vs.
+commercial-use terms) haven't been reviewed the same way — worth doing
+before leaning on it further.
 
 ---
 
@@ -236,35 +205,31 @@ automatically:
   (`dividend_source_name`), so US stocks no longer compete with LSE ones
   for Alpha Vantage's 25/day cap.
 
-  **`payment_date` backfill is a free side effect, not an extra request:**
-  both FMP and Alpha Vantage already return `payment_date` in the exact
-  same response used for `declaration_date`, so filling it in costs
-  nothing beyond what the command already fetches. It's strictly
-  additive — only fills rows where `payment_date` is currently `NULL`,
-  never overwrites an existing value — same safety profile as the
-  `declaration_date` fill. Unlike `declaration_date`, there's no separate
-  "confirmed absent" bookkeeping for it: whether a stock gets re-attempted
-  at all is governed entirely by `declaration_date_checked`, so a row
-  missing only `payment_date` (with `declaration_date` already known)
-  won't be revisited by this command specifically for that gap — the
-  fuller `save_dividends` sync path would pick it up instead.
+  `payment_date` backfill is a free side effect, not an extra request: both
+  providers already return it alongside `declaration_date` in the same
+  response, so filling it costs nothing extra. Strictly additive — only
+  fills rows where `payment_date` is currently `NULL`, never overwrites an
+  existing value. Unlike `declaration_date`, there's no separate "confirmed
+  absent" bookkeeping for it: whether a stock gets re-attempted at all is
+  governed entirely by `declaration_date_checked`, so a row missing only
+  `payment_date` (with `declaration_date` already known) won't be revisited
+  by this command specifically for that gap — the fuller `save_dividends`
+  sync path would pick it up instead.
 
   **FMP-failure fallback (this command only):** if an FMP-routed stock's
   request fails for any reason — including FMP's per-symbol premium gate,
   not just a genuine rate limit — this command retries via Alpha Vantage
-  before giving up. Confirmed live: `CAT`/`HON`/`MO`/`WDS` are all
-  premium-gated on FMP but have full `declaration_date` history on Alpha
-  Vantage, previously wasted as a permanent, silent daily failure (see
-  above). Stocks are processed **Alpha-Vantage-primary (non-US) first**,
-  specifically so this fallback's spending never starves the handful of
-  genuinely AV-only symbols of their own quota. Deliberately *not* shared
-  with `save_dividends`'s ordinary sync path: this cron runs sequentially
-  and throttled by `--delay`, so it's safe to spend Alpha Vantage's
-  near-entirely-unused spare quota here, whereas `save_dividends` can run
-  from parallel, uncoordinated contexts (e.g. `auto_record_dividends`'s
-  `ThreadPoolExecutor`) where the same fallback could reintroduce the quota
-  contention the FMP/Alpha Vantage split was built to fix in the first
-  place.
+  before giving up (e.g. `CAT`/`HON`/`MO`/`WDS`, premium-gated on FMP but
+  fully available on Alpha Vantage). Stocks are processed
+  **Alpha-Vantage-primary (non-US) first**, specifically so this fallback's
+  spending never starves the handful of genuinely AV-only symbols of their
+  own quota. Deliberately *not* shared with `save_dividends`'s ordinary
+  sync path: this cron runs sequentially and throttled by `--delay`, so
+  it's safe to spend Alpha Vantage's near-entirely-unused spare quota here,
+  whereas `save_dividends` can run from parallel, uncoordinated contexts
+  (e.g. `auto_record_dividends`'s `ThreadPoolExecutor`) where the same
+  fallback could reintroduce the quota contention the FMP/Alpha Vantage
+  split was built to fix in the first place.
 
   Only targets stocks with a dividend dated on/after a **fixed** `2020-01-01`
   boundary (Alpha Vantage's observed `declaration_date` coverage start —
@@ -284,11 +249,10 @@ automatically:
   the future (an undeclared-but-upcoming dividend must keep being retried
   daily until it's actually announced — that's the mechanism that fixes
   cases like MO). Same idea applies one level up: if a stock's routed source
-  answers with a clean, empty history (no rate-limit error, just zero
-  entries — confirmed for IDUS.L/DGRW.L above), every eligible row for that
-  stock is marked checked immediately, rather than resurfacing in the
-  backlog every single day forever and silently eating into whichever
-  source's quota it's routed to.
+  answers with a clean, empty history, every eligible row for that stock is
+  marked checked immediately, rather than resurfacing in the backlog every
+  single day forever and silently eating into whichever source's quota it's
+  routed to.
 - **`recompute_buy_yields`** — reruns `fetch_and_store_buy_yield` for every
   BUY transaction, so any yield computed while data was still incomplete
   gets silently corrected once `declaration_date` shows up.
@@ -308,49 +272,38 @@ docker exec market-mind-web-1 python manage.py recompute_buy_yields
 
 ---
 
-## Temporary premium blitz (one-off, not cron) — 2026-07 only
+## Premium Alpha Vantage blitz (optional, not cron)
 
-A one-month Alpha Vantage **premium** key (75 req/min, no daily cap) was
-purchased on 2026-07-07 specifically to clear the backlog the free-tier
-25/day cap couldn't reach quickly. `backfill_dividend_dates_premium` (+
-`scripts/backfill_dividend_data_premium.sh`) is a **separate, self-contained
-tool** for this — it duplicates the small amount of Alpha Vantage fetch/parse
-logic it needs rather than importing from `research/services.py`, so it
-never touches the free-tier key, the daily cron command, or anything else
-already in place. Not registered in cron or the Makefile; run manually as
-needed during the paid month.
+A paid Alpha Vantage key (75 req/min, no daily cap) unlocks a faster,
+broader one-off sweep than the free-tier daily cron can do — useful for
+quickly clearing a large backlog rather than waiting on the 25/day cap over
+many days. `backfill_dividend_dates_premium` (+
+`scripts/backfill_dividend_data_premium.sh`) is a **separate,
+self-contained tool** for this — it duplicates the small amount of Alpha
+Vantage fetch/parse logic it needs rather than importing from
+`research/services.py`, so it never touches the free-tier key, the daily
+cron command, or anything else already in place. Requires
+`ALPHA_VANTAGE_PREMIUM_API_KEY` in `.env`; inert without it. Not registered
+in cron or the Makefile — run manually as needed.
 
 Three deliberate differences from the daily cron command:
 - **Processes every stock unconditionally** (or a `--symbols` subset),
-  ignoring `declaration_date_checked` — most stocks are already "resolved"
-  under the free-tier logic and would be skipped forever by the daily cron,
-  but many were still missing `payment_date`, which the free-tier command
-  only fills as a side effect of stocks it happens to revisit.
+  ignoring `declaration_date_checked` — the daily cron skips any stock
+  that's already fully "resolved," even if it's still missing
+  `payment_date`, which only gets backfilled as a side effect of a stock
+  the daily cron happens to revisit.
 - **Alpha Vantage only, no FMP routing** — pointless to route around
-  Alpha Vantage's limits when they're effectively gone for a month.
+  Alpha Vantage's limits when a premium key removes them.
 - **No `2020-01-01` coverage-start boundary** — that boundary exists on the
   free-tier command purely to avoid wasting scarce quota on symbols with no
   realistic chance of a match. With the cap effectively gone, there's no
-  reason to skip older rows.
+  reason to skip older rows; if Alpha Vantage genuinely has nothing for
+  them, the update simply matches zero rows, same as always.
 
-First real run (2026-07-07, `--delay 1`, ~30s for 30 stocks): **23
-`declaration_date` + 88 `payment_date` rows recovered**, overall
-`payment_date` coverage 449→625 across the DB. Most of that came from
-`CSL` (a stock never previously touched — 23+22 new) and completing
-`payment_date` for `HON`/`KO`/`MO` (already had `declaration_date` from the
-earlier CAT/HON/MO/WDS fallback work, but not `payment_date` until now).
-Also extended the "confirmed permanently empty" marking on `IDUS.L`/`DGRW.L`
-beyond the 2020 boundary the free-tier command respects (`DGRW.L`: 11 more
-pre-2020 rows marked checked).
-
-**Residual gap this can't close, by design:**
-- `JNJ`/`KO`/`LMT`/`NKE`/`PEP`/`VZ`/`INTC` still show `declaration_date`
-  well ahead of `payment_date` (e.g. JNJ: 141 vs 23) even after this run —
-  their deep `declaration_date` history came from FMP, which reaches
-  further back than Alpha Vantage's own coverage; for those older
-  ex-dates, Alpha Vantage's response apparently doesn't carry a
-  `payment_date` either, so there's nothing further to recover from either
-  source.
+Because it's Alpha Vantage-only, it can't recover data that only exists on
+FMP's side (e.g. deep `payment_date` history reached via FMP's longer
+lookback) — the ceiling described in `Data sources` applies regardless of
+which Alpha Vantage tier is used.
 
 ```bash
 ./scripts/backfill_dividend_data_premium.sh                      # every stock
@@ -382,8 +335,8 @@ above, and won't create ledger entries on its own.
 Holding shares before the ex-date makes a user *entitled* to a dividend, but
 the routed source can report one that's been declared and already has an
 ex-date without it having been paid yet (or even before it's gone ex at
-all) — e.g. MSFT's next-quarter row showing up in `research.Dividend` ahead
-of time. Recording that immediately would put a future, not-yet-received
+all) — e.g. a next-quarter row showing up in `research.Dividend` ahead of
+time. Recording that immediately would put a future, not-yet-received
 payment in the Activity ledger as if it were real income already banked.
 
 So ledger creation is gated on the dividend having actually occurred:

@@ -539,6 +539,8 @@ def portfolio_detail_view(request, pk):
             desc += f" ({_fmt_qty(qty)} sh)"
         ledger.append({
             'tx_id': None,
+            'div_id': div.id,
+            'is_manual': div.is_manual,
             'date': effective_date,
             'date_estimated': not pay_date_known,
             'type': 'div', 'label': 'Dividend',
@@ -936,8 +938,15 @@ def portfolio_sync_dividends(request, pk):
     """Refresh research dividend data from yfinance, then auto-record qualifying payments."""
     portfolio = get_object_or_404(Portfolio, pk=pk, user=request.user)
     result = PortfolioCalculationService.auto_record_dividends(portfolio)
+    parts = []
     if result['created'] > 0:
-        messages.success(request, f"{result['created']} dividend payment(s) recorded automatically.")
+        parts.append(f"{result['created']} recorded")
+    if result.get('updated', 0) > 0:
+        parts.append(f"{result['updated']} corrected")
+    if result.get('deleted', 0) > 0:
+        parts.append(f"{result['deleted']} removed")
+    if parts:
+        messages.success(request, f"Dividends synced: {', '.join(parts)}.")
     else:
         messages.info(request, "No new dividends to record — everything is already up to date.")
     if result.get('refresh_errors'):
@@ -1156,6 +1165,138 @@ def transaction_delete_view(request, portfolio_id, tx_id):
         PortfolioCalculationService.rebuild_position(portfolio, symbol)
 
     messages.success(request, 'Transaction deleted successfully.')
+    return redirect('portfolio:portfolio_detail_view', pk=portfolio.id)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def dividend_create_view(request, portfolio_id):
+    """
+    Frontend view: manually record a Dividend the sync data source never had
+    (e.g. an unlisted/OTC stock, or a payment yfinance doesn't carry).
+    Always saved with is_manual=True — auto_record_dividends never touches it.
+    """
+    portfolio = get_object_or_404(Portfolio, pk=portfolio_id, user=request.user)
+
+    if request.method == 'POST':
+        try:
+            symbol = request.POST.get('symbol', '').strip().upper()
+            if not symbol:
+                messages.error(request, 'Stock symbol is required.')
+                return render(request, 'portfolio/dividend_form.html', {
+                    'portfolio': portfolio,
+                    'today': datetime.now().strftime('%Y-%m-%d'),
+                    'post': request.POST,
+                })
+            success, message, stock = PortfolioCalculationService.ensure_stock_exists(symbol)
+            if not success:
+                messages.error(request, message)
+                return render(request, 'portfolio/dividend_form.html', {
+                    'portfolio': portfolio,
+                    'today': datetime.now().strftime('%Y-%m-%d'),
+                    'post': request.POST,
+                })
+
+            quantity_raw = request.POST.get('quantity', '').strip()
+
+            Dividend.objects.create(
+                portfolio=portfolio,
+                symbol=stock.symbol,
+                amount=Decimal(request.POST.get('amount', '0') or '0'),
+                quantity=Decimal(quantity_raw) if quantity_raw else None,
+                tax=Decimal(request.POST.get('tax', '').strip() or '0'),
+                payment_date=request.POST.get('payment_date', '').strip() or None,
+                ex_dividend_date=request.POST.get('ex_dividend_date', '').strip() or None,
+                notes=request.POST.get('notes', '').strip(),
+                is_manual=True,
+            )
+            messages.success(request, 'Dividend recorded.')
+            return redirect('portfolio:portfolio_detail_view', pk=portfolio.id)
+
+        except Exception as e:
+            import traceback
+            logger.error("Error in dividend_create_view: %s", traceback.format_exc())
+            messages.error(request, f'Error adding dividend: {str(e)}')
+
+    return render(request, 'portfolio/dividend_form.html', {
+        'portfolio': portfolio,
+        'today': datetime.now().strftime('%Y-%m-%d'),
+    })
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def dividend_edit_view(request, portfolio_id, dividend_id):
+    """
+    Frontend view: edit a Dividend record (auto-recorded or manual). Editing
+    always marks the row is_manual=True, so the next sync leaves it exactly
+    as the user set it instead of recomputing/overwriting it.
+    """
+    portfolio = get_object_or_404(Portfolio, pk=portfolio_id, user=request.user)
+    dividend = get_object_or_404(Dividend, pk=dividend_id, portfolio=portfolio)
+
+    if request.method == 'POST':
+        try:
+            symbol = request.POST.get('symbol', '').strip().upper()
+            if not symbol:
+                messages.error(request, 'Stock symbol is required.')
+                return redirect('portfolio:dividend_edit_view', portfolio_id=portfolio.id, dividend_id=dividend.id)
+            success, message, stock = PortfolioCalculationService.ensure_stock_exists(symbol)
+            if not success:
+                messages.error(request, message)
+                return redirect('portfolio:dividend_edit_view', portfolio_id=portfolio.id, dividend_id=dividend.id)
+
+            quantity_raw = request.POST.get('quantity', '').strip()
+
+            dividend.symbol = stock.symbol
+            dividend.amount = Decimal(request.POST.get('amount', '0') or '0')
+            dividend.quantity = Decimal(quantity_raw) if quantity_raw else None
+            dividend.tax = Decimal(request.POST.get('tax', '').strip() or '0')
+            dividend.payment_date = request.POST.get('payment_date', '').strip() or None
+            dividend.ex_dividend_date = request.POST.get('ex_dividend_date', '').strip() or None
+            dividend.notes = request.POST.get('notes', '').strip()
+            dividend.is_manual = True
+            dividend.save()
+
+            messages.success(request, 'Dividend updated.')
+            return redirect('portfolio:portfolio_detail_view', pk=portfolio.id)
+
+        except Exception as e:
+            import traceback
+            logger.error("Error in dividend_edit_view: %s", traceback.format_exc())
+            messages.error(request, f'Error updating dividend: {str(e)}')
+
+    post = {
+        'symbol':           dividend.symbol,
+        'amount':           str(dividend.amount),
+        'quantity':         str(dividend.quantity) if dividend.quantity is not None else '',
+        'tax':              str(dividend.tax),
+        'payment_date':     dividend.payment_date.strftime('%Y-%m-%d') if dividend.payment_date else '',
+        'ex_dividend_date': dividend.ex_dividend_date.strftime('%Y-%m-%d') if dividend.ex_dividend_date else '',
+        'notes':            dividend.notes or '',
+    }
+
+    return render(request, 'portfolio/dividend_form.html', {
+        'portfolio': portfolio,
+        'today': datetime.now().strftime('%Y-%m-%d'),
+        'is_edit': True,
+        'dividend': dividend,
+        'post': post,
+    })
+
+
+@login_required
+@require_http_methods(["POST"])
+def dividend_delete_view(request, portfolio_id, dividend_id):
+    """Delete a Dividend record. Note: deleting an auto-recorded (non-manual)
+    row that still matches a real ex-dividend date will simply be re-created
+    by the next sync — edit it instead if the goal is to permanently override
+    what sync would otherwise compute."""
+    portfolio = get_object_or_404(Portfolio, pk=portfolio_id, user=request.user)
+    dividend = get_object_or_404(Dividend, pk=dividend_id, portfolio=portfolio)
+    symbol = dividend.symbol
+    dividend.delete()
+    messages.success(request, f'Dividend removed ({symbol}).')
     return redirect('portfolio:portfolio_detail_view', pk=portfolio.id)
 
 

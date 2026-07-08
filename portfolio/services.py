@@ -1036,15 +1036,23 @@ class PortfolioCalculationService:
         Refresh research.Dividend data from yfinance for every symbol ever
         transacted in this portfolio, then create portfolio.Dividend records
         for dividends the user qualified for (held shares at close of the day
-        before the ex-dividend date). Expected withholding tax is computed at
-        creation time from the portfolio owner's TaxWithholdingRule, if any —
-        see get_withholding_tax_rate.
+        before the ex-dividend date). Expected withholding tax is computed
+        from the portfolio owner's TaxWithholdingRule, if any — see
+        get_withholding_tax_rate.
 
         Symbols are sourced from transaction history rather than open
         positions, since a fully sold-out symbol still has no Position row
         but may be entitled to a dividend that went ex-date before the sale.
 
-        Returns a dict with counts of new records created and skipped duplicates.
+        Existing 'Auto-recorded' rows are re-checked against the current
+        transaction ledger on every run, not just skipped: backfilling a
+        forgotten buy (or sell) dated before an ex-date changes how many
+        shares were eligible for it, so the stored quantity/amount/tax are
+        recomputed to match, and the row is deleted if the corrected share
+        count drops to zero. Manually created/edited dividend rows (any
+        other `notes`) are never touched.
+
+        Returns a dict with counts of created/updated/deleted/skipped rows.
         Idempotent — safe to call multiple times.
         """
         from research.models import Dividend as ResearchDividend
@@ -1100,29 +1108,49 @@ class PortfolioCalculationService:
             .order_by('stock__symbol', 'date')
         )
 
-        # Existing portfolio dividend records keyed by (symbol, ex_date) for dedup
-        existing = set(
-            PortfolioDividend.objects.filter(portfolio=portfolio)
+        # Auto-recorded rows are re-derived every run (quantity/amount/tax may
+        # need correcting if a transaction was backfilled since they were
+        # created); manually created/edited rows are left alone entirely.
+        existing_auto = {
+            (pd.symbol, pd.ex_dividend_date): pd
+            for pd in PortfolioDividend.objects.filter(
+                portfolio=portfolio, is_manual=False
+            ).exclude(ex_dividend_date=None)
+        }
+        existing_manual = set(
+            PortfolioDividend.objects.filter(portfolio=portfolio, is_manual=True)
             .exclude(ex_dividend_date=None)
             .values_list('symbol', 'ex_dividend_date')
         )
 
         created = 0
+        updated = 0
+        deleted = 0
         skipped = 0
 
         for div in research_divs:
             symbol     = div.stock.symbol
             ex_date    = div.date          # research.Dividend.date is the ex-date
             check_date = ex_date - timedelta(days=1)
+            key        = (symbol, ex_date)
 
-            if (symbol, ex_date) in existing:
+            if key in existing_manual:
                 skipped += 1
                 continue
+
+            existing_record = existing_auto.get(key)
 
             shares = PortfolioCalculationService._shares_held_on_date(
                 portfolio, symbol, check_date
             )
             if shares <= 0:
+                # A backfilled sell (or a correction) can drop entitlement to
+                # zero after the row was created — the dividend shouldn't
+                # exist for this portfolio at all in that case.
+                if existing_record is not None:
+                    existing_record.delete()
+                    del existing_auto[key]
+                    deleted += 1
                 continue
 
             # Use the research-side payment_date when available so the portfolio
@@ -1146,7 +1174,25 @@ class PortfolioCalculationService:
                 if rate is not None else Decimal('0')
             )
 
-            PortfolioDividend.objects.create(
+            if existing_record is not None:
+                changed = (
+                    existing_record.quantity != shares
+                    or existing_record.amount != total_amount
+                    or existing_record.tax != tax_amount
+                    or existing_record.payment_date != payment_date
+                )
+                if changed:
+                    existing_record.quantity = shares
+                    existing_record.amount = total_amount
+                    existing_record.tax = tax_amount
+                    existing_record.payment_date = payment_date
+                    existing_record.save(update_fields=['quantity', 'amount', 'tax', 'payment_date'])
+                    updated += 1
+                else:
+                    skipped += 1
+                continue
+
+            new_record = PortfolioDividend.objects.create(
                 portfolio=portfolio,
                 symbol=symbol,
                 amount=total_amount,
@@ -1156,10 +1202,10 @@ class PortfolioCalculationService:
                 ex_dividend_date=ex_date,
                 notes='Auto-recorded',
             )
-            existing.add((symbol, ex_date))
+            existing_auto[key] = new_record
             created += 1
 
-        result = {'created': created, 'skipped': skipped}
+        result = {'created': created, 'updated': updated, 'deleted': deleted, 'skipped': skipped}
         if refresh_errors:
             result['refresh_errors'] = refresh_errors
         return result

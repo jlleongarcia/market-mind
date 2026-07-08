@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if is_edit %}Edit Dividend{% else %}Add Dividend{% endif %} — {{ portfolio.name }} — Market Mind{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="breadcrumb">
+        <a href="{% url 'portfolio:portfolio_list_view' %}">Portfolios</a>
+        <span class="breadcrumb-sep">/</span>
+        <a href="{% url 'portfolio:portfolio_detail_view' portfolio.id %}">{{ portfolio.name }}</a>
+        <span class="breadcrumb-sep">/</span>
+        <span>{% if is_edit %}Edit Dividend{% else %}Add Dividend{% endif %}</span>
+    </div>
+    <h1 class="page-title">{% if is_edit %}Edit Dividend{% else %}Add Dividend{% endif %}</h1>
+</div>
+
+{% if is_edit %}
+<div class="alert alert-warning" style="max-width:680px;margin-bottom:16px;">
+    Saving marks this record as manually managed — the "Sync dividends" button will never
+    recompute or delete it again, even if your buy/sell history for this stock changes later.
+</div>
+{% endif %}
+
+<div class="card" style="max-width:680px;">
+    <div class="card-body">
+        <form method="post">
+            {% csrf_token %}
+
+            <div class="form-group">
+                <label class="form-label" for="symbol">Ticker Symbol <span class="required">*</span></label>
+                <input type="text" id="symbol" name="symbol" class="form-control"
+                       value="{{ post.symbol|default:'' }}"
+                       placeholder="e.g. AAPL, KO, JNJ"
+                       style="text-transform:uppercase;font-weight:600;letter-spacing:0.04em;"
+                       required autofocus>
+                <p class="form-hint">Stock is fetched automatically if not in the database</p>
+            </div>
+
+            <div class="form-grid-2">
+                <div class="form-group">
+                    <label class="form-label" for="amount">Total Amount Received <span class="required">*</span></label>
+                    <input type="number" id="amount" name="amount" class="form-control"
+                           step="0.01" min="0" placeholder="0.00" required
+                           value="{{ post.amount|default:'' }}">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="tax">Tax Withheld</label>
+                    <input type="number" id="tax" name="tax" class="form-control"
+                           step="0.01" min="0" placeholder="0.00"
+                           value="{{ post.tax|default:'0.00' }}">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="quantity">Shares Held</label>
+                    <input type="number" id="quantity" name="quantity" class="form-control"
+                           step="0.0001" min="0" placeholder="0.00"
+                           value="{{ post.quantity|default:'' }}">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="payment_date">Payment Date</label>
+                    <input type="date" id="payment_date" name="payment_date" class="form-control"
+                           value="{{ post.payment_date|default:'' }}">
+                    <p class="form-hint">Can be set in the future for a declared-but-not-yet-paid dividend.</p>
+                </div>
+
+                <div class="form-group col-full">
+                    <label class="form-label" for="ex_dividend_date">Ex-Dividend Date</label>
+                    <input type="date" id="ex_dividend_date" name="ex_dividend_date" class="form-control"
+                           value="{{ post.ex_dividend_date|default:'' }}">
+                </div>
+
+                <div class="form-group col-full">
+                    <label class="form-label" for="notes">Notes</label>
+                    <textarea id="notes" name="notes" class="form-control" rows="2"
+                              placeholder="Optional notes about this dividend">{{ post.notes|default:'' }}</textarea>
+                </div>
+            </div>
+
+            <div style="display:flex;gap:10px;margin-top:20px;">
+                <button type="submit" class="btn btn-primary btn-lg" style="flex:1;">
+                    {% if is_edit %}Save Changes{% else %}Record Dividend{% endif %}
+                </button>
+                <a href="{% url 'portfolio:portfolio_detail_view' portfolio.id %}" class="btn btn-secondary btn-lg" style="flex:1;justify-content:center;">
+                    Cancel
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

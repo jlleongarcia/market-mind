@@ -340,6 +340,12 @@ class Dividend(models.Model):
     payment_date = models.DateField(null=True, blank=True)
     ex_dividend_date = models.DateField(null=True, blank=True)
     notes = models.TextField(blank=True)
+    is_manual = models.BooleanField(
+        default=False,
+        help_text="True once a user has manually created or edited this record — "
+                   "auto_record_dividends recomputes/deletes non-manual rows on every "
+                   "sync but never touches manual ones.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
