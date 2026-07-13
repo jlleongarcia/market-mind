@@ -216,7 +216,7 @@
 
             <div style="display:flex;gap:10px;">
                 <button type="submit" class="btn btn-primary btn-lg" style="flex:1;">
-                    {% if is_edit %}Save Changes{% else %}Record Transaction{% endif %}
+                    {% if is_edit %}Save Changes{% else %}<span id="submitLabel">Record Transaction</span>{% endif %}
                 </button>
                 <a href="{% url 'portfolio:portfolio_detail_view' portfolio.id %}" class="btn btn-secondary btn-lg" style="flex:1;justify-content:center;">
                     Cancel
@@ -232,14 +232,14 @@
 const NATIVE_CURRENCY = '{{ portfolio.native_currency }}';
 
 const TYPE_CONFIG = {
-    BUY:  { symbolVisible: true,  symbolRequired: true,  symbolHint: 'Stock is fetched automatically if not in the database', sharesVisible: true,  priceVisible: true,  priceLabel: 'Price per Share',   commVisible: true,  taxVisible: false, brokerVisible: true,  totalVisible: true,  fxVisible: true,  excVisible: false, txCurVisible: true,  depWitCurVisible: false },
-    SELL: { symbolVisible: true,  symbolRequired: true,  symbolHint: 'Stock is fetched automatically if not in the database', sharesVisible: true,  priceVisible: true,  priceLabel: 'Price per Share',   commVisible: true,  taxVisible: false, brokerVisible: true,  totalVisible: true,  fxVisible: true,  excVisible: false, txCurVisible: true,  depWitCurVisible: false },
-    DIV:  { symbolVisible: true,  symbolRequired: true,  symbolHint: 'Ticker that paid the dividend',                         sharesVisible: true,  priceVisible: true,  priceLabel: 'Dividend per Share', commVisible: false, taxVisible: true,  brokerVisible: false, totalVisible: true,  fxVisible: true,  excVisible: false, txCurVisible: true,  depWitCurVisible: false },
-    SPOF: { symbolVisible: true,  symbolRequired: true,  symbolHint: 'New ticker received in the spin-off',                   sharesVisible: true,  priceVisible: true,  priceLabel: 'Price per Share',   commVisible: false, taxVisible: false, brokerVisible: false, totalVisible: true,  fxVisible: false, excVisible: false, txCurVisible: false, depWitCurVisible: false },
-    INT:  { symbolVisible: false, symbolRequired: false, symbolHint: '',                                                       sharesVisible: false, priceVisible: true,  priceLabel: 'Amount',            commVisible: false, taxVisible: true,  brokerVisible: false, totalVisible: false, fxVisible: true,  excVisible: false, txCurVisible: true,  depWitCurVisible: false },
-    DEP:  { symbolVisible: false, symbolRequired: false, symbolHint: '',                                                       sharesVisible: false, priceVisible: true,  priceLabel: 'Amount',            commVisible: false, taxVisible: false, brokerVisible: false, totalVisible: false, fxVisible: false, excVisible: false, txCurVisible: false, depWitCurVisible: true  },
-    WIT:  { symbolVisible: false, symbolRequired: false, symbolHint: '',                                                       sharesVisible: false, priceVisible: true,  priceLabel: 'Amount',            commVisible: false, taxVisible: false, brokerVisible: false, totalVisible: false, fxVisible: false, excVisible: false, txCurVisible: false, depWitCurVisible: true  },
-    EXC:  { symbolVisible: false, symbolRequired: false, symbolHint: '',                                                       sharesVisible: false, priceVisible: false, priceLabel: 'Exchange Rate',     commVisible: true,  taxVisible: false, brokerVisible: false, totalVisible: false, fxVisible: false, excVisible: true,  txCurVisible: false, depWitCurVisible: false },
+    BUY:  { symbolVisible: true,  symbolRequired: true,  symbolHint: 'Stock is fetched automatically if not in the database', sharesVisible: true,  priceVisible: true,  priceLabel: 'Price per Share',   commVisible: true,  taxVisible: false, brokerVisible: true,  totalVisible: true,  fxVisible: true,  excVisible: false, txCurVisible: true,  depWitCurVisible: false, submitLabel: 'Record Transaction' },
+    SELL: { symbolVisible: true,  symbolRequired: true,  symbolHint: 'Stock is fetched automatically if not in the database', sharesVisible: true,  priceVisible: true,  priceLabel: 'Price per Share',   commVisible: true,  taxVisible: false, brokerVisible: true,  totalVisible: true,  fxVisible: true,  excVisible: false, txCurVisible: true,  depWitCurVisible: false, submitLabel: 'Record Transaction' },
+    DIV:  { symbolVisible: true,  symbolRequired: true,  symbolHint: 'Ticker that paid the dividend',                         sharesVisible: true,  priceVisible: true,  priceLabel: 'Dividend per Share', commVisible: false, taxVisible: true,  brokerVisible: false, totalVisible: true,  fxVisible: true,  excVisible: false, txCurVisible: true,  depWitCurVisible: false, submitLabel: 'Record Dividend' },
+    SPOF: { symbolVisible: true,  symbolRequired: true,  symbolHint: 'New ticker received in the spin-off',                   sharesVisible: true,  priceVisible: true,  priceLabel: 'Price per Share',   commVisible: false, taxVisible: false, brokerVisible: false, totalVisible: true,  fxVisible: false, excVisible: false, txCurVisible: false, depWitCurVisible: false, submitLabel: 'Record Spin-Off' },
+    INT:  { symbolVisible: false, symbolRequired: false, symbolHint: '',                                                       sharesVisible: false, priceVisible: true,  priceLabel: 'Amount',            commVisible: false, taxVisible: true,  brokerVisible: false, totalVisible: false, fxVisible: true,  excVisible: false, txCurVisible: true,  depWitCurVisible: false, submitLabel: 'Record Interest' },
+    DEP:  { symbolVisible: false, symbolRequired: false, symbolHint: '',                                                       sharesVisible: false, priceVisible: true,  priceLabel: 'Amount',            commVisible: false, taxVisible: false, brokerVisible: false, totalVisible: false, fxVisible: false, excVisible: false, txCurVisible: false, depWitCurVisible: true , submitLabel: 'Record Deposit' },
+    WIT:  { symbolVisible: false, symbolRequired: false, symbolHint: '',                                                       sharesVisible: false, priceVisible: true,  priceLabel: 'Amount',            commVisible: false, taxVisible: false, brokerVisible: false, totalVisible: false, fxVisible: false, excVisible: false, txCurVisible: false, depWitCurVisible: true , submitLabel: 'Record Withdrawal' },
+    EXC:  { symbolVisible: false, symbolRequired: false, symbolHint: '',                                                       sharesVisible: false, priceVisible: false, priceLabel: 'Exchange Rate',     commVisible: true,  taxVisible: false, brokerVisible: false, totalVisible: false, fxVisible: false, excVisible: true,  txCurVisible: false, depWitCurVisible: false, submitLabel: 'Record Exchange' },
 };
 
 // Embedded so the DIV tax preview works instantly with no AJAX round-trip —
@@ -284,6 +284,8 @@ function setType(type) {
     show('fieldFXRate',         cfg.fxVisible);
     show('excRatePreview',      cfg.excVisible);
     show('fieldDepWitCurrency', cfg.depWitCurVisible);
+    const submitLabel = document.getElementById('submitLabel');
+    if (submitLabel) submitLabel.textContent = cfg.submitLabel;
 
     // EXC sub-fields
     ['fieldFromCurrency','fieldFromAmount','fieldToCurrency','fieldToAmount','fieldCommissionCurrency'].forEach(id => {
@@ -309,14 +311,16 @@ function effectiveTaxRate(symbol) {
 
     if (!meta.country) return null;
 
+    const countryEq = (a, b) => (a || '').toLowerCase() === (b || '').toLowerCase();
+
     const exact = USER_TAX_RULES.find(
-        r => !r.symbol && r.country === meta.country && r.entity_type === meta.entity_type
+        r => !r.symbol && countryEq(r.country, meta.country) && r.entity_type === meta.entity_type
     );
     if (exact) return exact.withholding_tax_rate;
 
     if (meta.entity_type !== 'REGULAR') {
         const fallback = USER_TAX_RULES.find(
-            r => !r.symbol && r.country === meta.country && r.entity_type === 'REGULAR'
+            r => !r.symbol && countryEq(r.country, meta.country) && r.entity_type === 'REGULAR'
         );
         if (fallback) return fallback.withholding_tax_rate;
     }

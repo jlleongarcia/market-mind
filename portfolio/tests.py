@@ -133,9 +133,8 @@ class AutoRecordDividendsTests(TestCase):
 
 class DividendCrudViewTests(TestCase):
     """
-    Covers the manual create/edit/delete UI: editing or creating a Dividend
-    must mark it is_manual=True so auto_record_dividends leaves it alone
-    afterward, and payment_date must accept a future date.
+    Covers the manual edit/delete UI: editing a Dividend must mark it
+    is_manual=True so auto_record_dividends leaves it alone afterward.
     """
 
     def setUp(self):
@@ -143,25 +142,6 @@ class DividendCrudViewTests(TestCase):
         self.client.force_login(self.user)
         self.portfolio = Portfolio.objects.create(user=self.user, name='Main')
         self.stock = Stock.objects.create(symbol='ACME', name='Acme Corp', currency='USD')
-
-    def test_create_view_marks_dividend_manual_and_accepts_future_payment_date(self):
-        future_date = (timezone.now().date() + timezone.timedelta(days=30)).isoformat()
-        response = self.client.post(
-            reverse('portfolio:dividend_create_view', args=[self.portfolio.id]),
-            {
-                'symbol': 'acme',
-                'amount': '42.50',
-                'quantity': '100',
-                'tax': '5.00',
-                'payment_date': future_date,
-                'notes': 'Declared, not yet paid',
-            },
-        )
-        self.assertEqual(response.status_code, 302)
-        div = PortfolioDividend.objects.get(portfolio=self.portfolio, symbol='ACME')
-        self.assertTrue(div.is_manual)
-        self.assertEqual(div.amount, Decimal('42.50'))
-        self.assertEqual(div.payment_date.isoformat(), future_date)
 
     def test_edit_view_marks_previously_auto_recorded_dividend_manual(self):
         div = PortfolioDividend.objects.create(
@@ -193,12 +173,10 @@ class DividendCrudViewTests(TestCase):
         self.assertFalse(PortfolioDividend.objects.filter(pk=div.id).exists())
 
     @override_settings(STATICFILES_STORAGE='django.contrib.staticfiles.storage.StaticFilesStorage')
-    def test_create_and_edit_forms_render(self):
+    def test_edit_form_renders(self):
         div = PortfolioDividend.objects.create(
             portfolio=self.portfolio, symbol='ACME', amount=Decimal('10.00'), is_manual=True,
         )
-        response = self.client.get(reverse('portfolio:dividend_create_view', args=[self.portfolio.id]))
-        self.assertEqual(response.status_code, 200)
         response = self.client.get(reverse('portfolio:dividend_edit_view', args=[self.portfolio.id, div.id]))
         self.assertEqual(response.status_code, 200)
 

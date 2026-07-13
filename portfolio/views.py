@@ -580,6 +580,20 @@ def portfolio_detail_view(request, pk):
             cash_by_currency[to_cur] += float(tx.to_amount) if tx.to_amount else 0
             cash_by_currency[comm_cur] -= c
 
+    # portfolio.Dividend rows (auto-synced via "Sync Dividends", or manually
+    # edited from the ledger) are real cash inflows too, but live outside the
+    # Transaction ledger — without this they're silently missing from the
+    # cash balance shown above. amount/tax are in the paying stock's own
+    # trading currency (no FX conversion happens when they're recorded).
+    from research.models import Stock as _Stock
+    dividend_symbols = {d.symbol for d in portfolio.dividends.all()}
+    stock_currencies = dict(
+        _Stock.objects.filter(symbol__in=dividend_symbols).values_list('symbol', 'currency')
+    )
+    for div in portfolio.dividends.all():
+        div_cur = stock_currencies.get(div.symbol) or portfolio.native_currency
+        cash_by_currency[div_cur] += (float(div.amount) - float(div.tax))
+
     cash_balances = [
         {'currency': cur, 'balance': round(bal, 2)}
         for cur, bal in sorted(cash_by_currency.items())
@@ -620,7 +634,9 @@ def portfolio_detail_view(request, pk):
 
     for div in portfolio.dividends.all():
         year = (div.payment_date or div.ex_dividend_date).year
+        div_cur = stock_currencies.get(div.symbol) or portfolio.native_currency
         yearly[year]['dividends'] += float(div.amount)
+        yearly_by_cur[year][div_cur]['dividends'] += float(div.amount)
 
     yearly_summary = []
     for yr, d in sorted(yearly.items(), reverse=True):
@@ -1166,62 +1182,6 @@ def transaction_delete_view(request, portfolio_id, tx_id):
 
     messages.success(request, 'Transaction deleted successfully.')
     return redirect('portfolio:portfolio_detail_view', pk=portfolio.id)
-
-
-@login_required
-@require_http_methods(["GET", "POST"])
-def dividend_create_view(request, portfolio_id):
-    """
-    Frontend view: manually record a Dividend the sync data source never had
-    (e.g. an unlisted/OTC stock, or a payment yfinance doesn't carry).
-    Always saved with is_manual=True — auto_record_dividends never touches it.
-    """
-    portfolio = get_object_or_404(Portfolio, pk=portfolio_id, user=request.user)
-
-    if request.method == 'POST':
-        try:
-            symbol = request.POST.get('symbol', '').strip().upper()
-            if not symbol:
-                messages.error(request, 'Stock symbol is required.')
-                return render(request, 'portfolio/dividend_form.html', {
-                    'portfolio': portfolio,
-                    'today': datetime.now().strftime('%Y-%m-%d'),
-                    'post': request.POST,
-                })
-            success, message, stock = PortfolioCalculationService.ensure_stock_exists(symbol)
-            if not success:
-                messages.error(request, message)
-                return render(request, 'portfolio/dividend_form.html', {
-                    'portfolio': portfolio,
-                    'today': datetime.now().strftime('%Y-%m-%d'),
-                    'post': request.POST,
-                })
-
-            quantity_raw = request.POST.get('quantity', '').strip()
-
-            Dividend.objects.create(
-                portfolio=portfolio,
-                symbol=stock.symbol,
-                amount=Decimal(request.POST.get('amount', '0') or '0'),
-                quantity=Decimal(quantity_raw) if quantity_raw else None,
-                tax=Decimal(request.POST.get('tax', '').strip() or '0'),
-                payment_date=request.POST.get('payment_date', '').strip() or None,
-                ex_dividend_date=request.POST.get('ex_dividend_date', '').strip() or None,
-                notes=request.POST.get('notes', '').strip(),
-                is_manual=True,
-            )
-            messages.success(request, 'Dividend recorded.')
-            return redirect('portfolio:portfolio_detail_view', pk=portfolio.id)
-
-        except Exception as e:
-            import traceback
-            logger.error("Error in dividend_create_view: %s", traceback.format_exc())
-            messages.error(request, f'Error adding dividend: {str(e)}')
-
-    return render(request, 'portfolio/dividend_form.html', {
-        'portfolio': portfolio,
-        'today': datetime.now().strftime('%Y-%m-%d'),
-    })
 
 
 @login_required

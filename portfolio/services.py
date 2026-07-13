@@ -726,14 +726,14 @@ class PortfolioCalculationService:
             return None
 
         rule = TaxWithholdingRule.objects.filter(
-            user=user, symbol__isnull=True, country=stock.country, entity_type=stock.entity_type,
+            user=user, symbol__isnull=True, country__iexact=stock.country, entity_type=stock.entity_type,
         ).first()
         if rule:
             return rule.withholding_tax_rate
 
         if stock.entity_type != 'REGULAR':
             rule = TaxWithholdingRule.objects.filter(
-                user=user, symbol__isnull=True, country=stock.country, entity_type='REGULAR',
+                user=user, symbol__isnull=True, country__iexact=stock.country, entity_type='REGULAR',
             ).first()
             if rule:
                 return rule.withholding_tax_rate
