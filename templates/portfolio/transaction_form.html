@@ -59,8 +59,15 @@
                 <p class="form-hint" id="symbolHint">Stock is fetched automatically if not in the database</p>
             </div>
 
-            <div class="form-grid-2">
-                <!-- Shares — hidden for cash-only / EXC types -->
+            <!-- Date — always visible, same position for every type -->
+            <div class="form-group">
+                <label class="form-label" for="transaction_date">Date <span class="required">*</span></label>
+                <input type="date" id="transaction_date" name="transaction_date" class="form-control"
+                       value="{{ post.transaction_date|default:today }}" required>
+            </div>
+
+            <!-- Amount — Shares + Price side by side when both apply; Price alone (full width) otherwise -->
+            <div class="form-grid-2" id="rowAmount">
                 <div class="form-group" id="fieldShares">
                     <label class="form-label" for="quantity"><span id="sharesLabel">Shares</span> <span class="required">*</span></label>
                     <input type="number" id="quantity" name="quantity" class="form-control"
@@ -68,21 +75,16 @@
                            value="{{ post.quantity|default:'' }}">
                 </div>
 
-                <!-- Price / Amount — hidden for EXC -->
                 <div class="form-group" id="fieldPrice">
                     <label class="form-label" for="price"><span id="priceLabel">Price per Share</span> <span class="required">*</span></label>
                     <input type="number" id="price" name="price" class="form-control"
                            step="0.0001" min="0" placeholder="0.00" required
                            value="{{ post.price|default:'' }}">
                 </div>
+            </div>
 
-                <div class="form-group">
-                    <label class="form-label" for="transaction_date">Date <span class="required">*</span></label>
-                    <input type="date" id="transaction_date" name="transaction_date" class="form-control"
-                           value="{{ post.transaction_date|default:today }}" required>
-                </div>
-
-                <!-- Commission — hidden for some types -->
+            <!-- Costs — Commission or Tax, whichever applies (never both at once) -->
+            <div id="rowCosts">
                 <div class="form-group" id="fieldCommission">
                     <label class="form-label" for="commission">Commission / Fees</label>
                     <input type="number" id="commission" name="commission" class="form-control"
@@ -97,15 +99,18 @@
                            step="0.01" min="0" value="{{ post.tax|default:'0.00' }}" placeholder="0.00">
                     <p class="form-hint" id="taxHint"></p>
                 </div>
+            </div>
 
-                <!-- Broker — shown only for BUY/SELL -->
-                <div class="form-group col-full" id="fieldBroker">
-                    <label class="form-label" for="broker">Broker</label>
-                    <input type="text" id="broker" name="broker" class="form-control"
-                           value="{{ post.broker|default:'' }}"
-                           placeholder="e.g. Interactive Brokers, Degiro, eToro">
-                </div>
+            <!-- Broker — shown only for BUY/SELL -->
+            <div class="form-group" id="fieldBroker">
+                <label class="form-label" for="broker">Broker</label>
+                <input type="text" id="broker" name="broker" class="form-control"
+                       value="{{ post.broker|default:'' }}"
+                       placeholder="e.g. Interactive Brokers, Degiro, eToro">
+            </div>
 
+            <!-- Currency & FX — one of three mutually-exclusive layouts, by type -->
+            <div class="form-grid-2" id="rowCurrency">
                 <!-- ── DEP / WIT currency ────────────────────────────────────── -->
                 <div class="form-group col-full" id="fieldDepWitCurrency" style="display:none;">
                     <label class="form-label" for="dep_wit_currency">Currency</label>
@@ -115,6 +120,16 @@
                             {% if post.dep_wit_currency == code %}selected
                             {% elif not post.dep_wit_currency and code == portfolio.native_currency %}selected
                             {% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- ── Transaction currency (BUY/SELL/DIV/INT) ───────────────── -->
+                <div class="form-group col-full" id="fieldTxCurrency" style="display:none;">
+                    <label class="form-label" for="transaction_currency">Currency</label>
+                    <select id="transaction_currency" name="transaction_currency" class="form-control">
+                        {% for code, label in currency_choices %}
+                        <option value="{{ code }}" {% if post.transaction_currency == code %}selected{% elif not post.transaction_currency and code == 'USD' %}selected{% endif %}>{{ code }} — {{ label }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -152,7 +167,7 @@
                            value="{{ post.to_amount|default:'' }}">
                 </div>
 
-                <div class="form-group" id="fieldCommissionCurrency" style="display:none;">
+                <div class="form-group col-full" id="fieldCommissionCurrency" style="display:none;">
                     <label class="form-label" for="commission_currency">Commission Currency</label>
                     <select id="commission_currency" name="commission_currency" class="form-control">
                         {% for code, label in currency_choices %}
@@ -161,17 +176,7 @@
                     </select>
                 </div>
 
-                <!-- ── Transaction currency (BUY/SELL/DIV/INT) ───────────────── -->
-                <div class="form-group" id="fieldTxCurrency" style="display:none;">
-                    <label class="form-label" for="transaction_currency">Currency</label>
-                    <select id="transaction_currency" name="transaction_currency" class="form-control">
-                        {% for code, label in currency_choices %}
-                        <option value="{{ code }}" {% if post.transaction_currency == code %}selected{% elif not post.transaction_currency and code == 'USD' %}selected{% endif %}>{{ code }} — {{ label }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-                <!-- ── FX Rate section (hidden for DEP/WIT/SPOF) ──────────── -->
+                <!-- ── FX Rate section (hidden for DEP/WIT/SPOF/EXC) ──────────── -->
                 <div class="form-group col-full" id="fieldFXRate" style="display:none;">
                     <div style="background:#f0f7ff;border:1px solid #b3d4f5;border-radius:var(--radius);padding:12px 14px;">
                         <div style="font-size:0.8rem;font-weight:600;color:#3b7ecb;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em;">
@@ -194,12 +199,13 @@
                         </p>
                     </div>
                 </div>
+            </div>
 
-                <div class="form-group col-full">
-                    <label class="form-label" for="notes">Notes</label>
-                    <textarea id="notes" name="notes" class="form-control" rows="2"
-                              placeholder="Optional notes about this transaction">{{ post.notes|default:'' }}</textarea>
-                </div>
+            <!-- Notes — always visible, always last -->
+            <div class="form-group">
+                <label class="form-label" for="notes">Notes</label>
+                <textarea id="notes" name="notes" class="form-control" rows="2"
+                          placeholder="Optional notes about this transaction">{{ post.notes|default:'' }}</textarea>
             </div>
 
             <!-- Total preview — hidden for EXC and single-amount types -->
@@ -270,28 +276,38 @@ function setType(type) {
     symbolInput.required = cfg.symbolRequired;
     if (cfg.symbolHint !== undefined) document.getElementById('symbolHint').textContent = cfg.symbolHint;
 
-    show('fieldShares',  cfg.sharesVisible);
+    // Amount row — Shares + Price when both apply; Price alone (full width) for cash types
+    show('rowAmount', cfg.sharesVisible || cfg.priceVisible);
+    show('fieldShares', cfg.sharesVisible);
     document.getElementById('quantity').required = cfg.sharesVisible;
 
-    show('fieldPrice',   cfg.priceVisible);
+    show('fieldPrice', cfg.priceVisible);
     document.getElementById('price').required = cfg.priceVisible;
     document.getElementById('priceLabel').textContent = cfg.priceLabel;
+    document.getElementById('fieldPrice').classList.toggle('col-full', cfg.priceVisible && !cfg.sharesVisible);
 
-    show('fieldCommission',     cfg.commVisible);
-    show('fieldTax',            cfg.taxVisible);
-    show('fieldBroker',         cfg.brokerVisible);
-    show('totalPreviewRow',     cfg.totalVisible);
-    show('fieldFXRate',         cfg.fxVisible);
-    show('excRatePreview',      cfg.excVisible);
+    // Costs row — Commission or Tax (this app never shows both for the same type)
+    show('rowCosts', cfg.commVisible || cfg.taxVisible);
+    show('fieldCommission', cfg.commVisible);
+    show('fieldTax',        cfg.taxVisible);
+
+    show('fieldBroker',     cfg.brokerVisible);
+    show('totalPreviewRow', cfg.totalVisible);
+    show('excRatePreview',  cfg.excVisible);
+
+    // Currency & FX row — DEP/WIT dropdown, standard tx-currency+FX, or EXC fields
+    show('rowCurrency', cfg.txCurVisible || cfg.depWitCurVisible || cfg.excVisible);
     show('fieldDepWitCurrency', cfg.depWitCurVisible);
-    const submitLabel = document.getElementById('submitLabel');
-    if (submitLabel) submitLabel.textContent = cfg.submitLabel;
+    show('fieldTxCurrency',    cfg.txCurVisible);
+    show('fieldFXRate',        cfg.fxVisible);
 
     // EXC sub-fields
     ['fieldFromCurrency','fieldFromAmount','fieldToCurrency','fieldToAmount','fieldCommissionCurrency'].forEach(id => {
         show(id, cfg.excVisible);
     });
-    show('fieldTxCurrency', cfg.txCurVisible);
+
+    const submitLabel = document.getElementById('submitLabel');
+    if (submitLabel) submitLabel.textContent = cfg.submitLabel;
 
     updateFXLabel(type);
     updateTotal();
