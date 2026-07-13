@@ -215,7 +215,7 @@ class Transaction(models.Model):
     def total_amount(self):
         """Total transaction amount including commission"""
         base_amount = self.quantity * self.price
-        if self.transaction_type == 'BUY':
+        if self.transaction_type in ('BUY', 'SPOF'):
             return base_amount + self.commission
         return base_amount - self.commission
     

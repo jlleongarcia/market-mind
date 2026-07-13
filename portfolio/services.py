@@ -644,6 +644,11 @@ class PortfolioCalculationService:
             
             if transaction.transaction_type == 'BUY':
                 brokers[broker]['total_invested'] += float(transaction.total_amount)
+            elif transaction.transaction_type == 'SPOF':
+                # A spin-off establishes a cost basis but moves no cash through this
+                # broker — leaving it out of total_invested (rather than subtracting
+                # it like a sale) keeps this a true "cash put in" figure.
+                pass
             else:
                 brokers[broker]['total_invested'] -= float(transaction.total_amount)
             
@@ -671,9 +676,11 @@ class PortfolioCalculationService:
             }
         )
         
-        if transaction.transaction_type == 'BUY':
-            # Calculate new average cost including commission so that unrealized P&L
-            # and yield figures reflect true acquisition cost.
+        if transaction.transaction_type in ('BUY', 'SPOF'):
+            # A spin-off is a virtual buy: the price entered is the fair-market-value
+            # cost basis per share at spin-off date, so it blends into average_cost
+            # exactly like a BUY — otherwise the spun-off shares would carry a $0
+            # cost basis and overstate profit (or understate loss) whenever sold.
             old_total_cost   = position.quantity * position.average_cost
             transaction_cost = transaction.quantity * transaction.price + transaction.commission
             new_quantity     = position.quantity + transaction.quantity
@@ -683,7 +690,7 @@ class PortfolioCalculationService:
                 position.average_cost = new_average_cost
 
             position.quantity = new_quantity
-            
+
         elif transaction.transaction_type == 'SELL':
             # Reduce quantity (average cost stays the same)
             position.quantity -= transaction.quantity

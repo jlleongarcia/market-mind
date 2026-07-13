@@ -131,6 +131,74 @@ class AutoRecordDividendsTests(TestCase):
         self.assertEqual(result['skipped'], 1)
 
 
+class SpinOffCostBasisTests(TestCase):
+    """
+    A spin-off is a virtual buy: the shares received need a real cost basis
+    (the fair-market-value price entered on the SPOF transaction), not a $0
+    one, otherwise selling them later overstates profit.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='tester', password='pw')
+        self.portfolio = Portfolio.objects.create(user=self.user, name='Main')
+        Stock.objects.create(symbol='PARENT', name='Parent Co', currency='USD')
+        Stock.objects.create(symbol='SPINCO', name='Spin Co', currency='USD')
+
+    def _tx(self, **kwargs):
+        defaults = dict(
+            portfolio=self.portfolio, quantity=Decimal('1'), price=Decimal('0'),
+            commission=Decimal('0'), transaction_date=timezone.now(),
+        )
+        defaults.update(kwargs)
+        tx = Transaction.objects.create(**defaults)
+        if tx.transaction_type in ('BUY', 'SELL', 'SPOF'):
+            PortfolioCalculationService.update_position_from_transaction(tx)
+        return tx
+
+    def test_spof_establishes_cost_basis_like_a_buy(self):
+        self._tx(symbol='SPINCO', transaction_type='SPOF', quantity=Decimal('10'), price=Decimal('5.00'))
+        position = self.portfolio.positions.get(symbol='SPINCO')
+        self.assertEqual(position.quantity, Decimal('10'))
+        self.assertEqual(position.average_cost, Decimal('5.00'))
+
+    def test_spof_blends_with_existing_buy_lot(self):
+        self._tx(symbol='PARENT', transaction_type='BUY', quantity=Decimal('10'), price=Decimal('20.00'))
+        # Spin-off of the same symbol (e.g. a return-of-capital adjustment) blends in
+        self._tx(symbol='PARENT', transaction_type='SPOF', quantity=Decimal('10'), price=Decimal('10.00'))
+        position = self.portfolio.positions.get(symbol='PARENT')
+        self.assertEqual(position.quantity, Decimal('20'))
+        self.assertEqual(position.average_cost, Decimal('15.00'))  # (10*20 + 10*10) / 20
+
+    def test_selling_spof_shares_uses_spof_price_not_zero(self):
+        self._tx(symbol='SPINCO', transaction_type='SPOF', quantity=Decimal('10'), price=Decimal('5.00'))
+        self._tx(symbol='SPINCO', transaction_type='SELL', quantity=Decimal('4'), price=Decimal('8.00'))
+        position = self.portfolio.positions.get(symbol='SPINCO')
+        self.assertEqual(position.quantity, Decimal('6'))
+        # average_cost must stay at the SPOF-established basis, not reset to 0
+        self.assertEqual(position.average_cost, Decimal('5.00'))
+        self.assertEqual(position.total_cost, Decimal('30.00'))  # 6 remaining shares * $5 basis
+
+    def test_rebuild_position_replays_spof_correctly(self):
+        self._tx(symbol='SPINCO', transaction_type='SPOF', quantity=Decimal('10'), price=Decimal('5.00'))
+        PortfolioCalculationService.rebuild_position(self.portfolio, 'SPINCO')
+        position = self.portfolio.positions.get(symbol='SPINCO')
+        self.assertEqual(position.quantity, Decimal('10'))
+        self.assertEqual(position.average_cost, Decimal('5.00'))
+
+    def test_total_amount_treats_spof_like_a_buy(self):
+        tx = self._tx(symbol='SPINCO', transaction_type='SPOF', quantity=Decimal('10'), price=Decimal('5.00'))
+        self.assertEqual(tx.total_amount, Decimal('50.00'))
+
+    def test_broker_summary_does_not_count_spof_as_a_sale(self):
+        self._tx(symbol='PARENT', transaction_type='BUY', quantity=Decimal('10'), price=Decimal('20.00'),
+                  broker='Degiro')
+        self._tx(symbol='SPINCO', transaction_type='SPOF', quantity=Decimal('10'), price=Decimal('5.00'),
+                  broker='Degiro')
+        summary = {b['broker']: b for b in PortfolioCalculationService.calculate_broker_summary(self.portfolio)}
+        # SPOF must not be subtracted from total_invested like a cash sale would be
+        self.assertEqual(summary['Degiro']['total_invested'], 200.0)
+
+
 class DividendCrudViewTests(TestCase):
     """
     Covers the manual edit/delete UI: editing a Dividend must mark it

@@ -628,9 +628,10 @@ def portfolio_detail_view(request, pk):
             yearly[year]['invested']    += _native(p * q + c); yearly_by_cur[year][cur]['invested']    += (p * q + c)
         elif tx.transaction_type == 'SELL':
             yearly[year]['sold']        += _native(p * q - c); yearly_by_cur[year][cur]['sold']        += (p * q - c)
-        elif tx.transaction_type in ('DIV', 'SPOF'):
+        elif tx.transaction_type == 'DIV':
             yearly[year]['dividends']   += _native(p * q - c - t); yearly_by_cur[year][cur]['dividends']   += (p * q - c - t)
         # EXC: currency swap, not counted in yearly summary
+        # SPOF: a virtual buy (cost basis only, no cash movement), not counted here either
 
     for div in portfolio.dividends.all():
         year = (div.payment_date or div.ex_dividend_date).year
