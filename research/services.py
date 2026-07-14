@@ -481,6 +481,43 @@ class StockDataFetcher:
             logger.warning(f"yfinance payment date map failed for {symbol}: {e}")
         return payment_map
 
+    def _is_plausible_dividend_amount(self, stock: Stock, ex_date, amount, has_confirming_date: bool) -> bool:
+        """
+        Reject an incoming dividend amount that's wildly inconsistent with the
+        stock's own recent dividend history when it carries no
+        declaration_date/payment_date to back it up. A real special dividend
+        is always confirmed by the source with at least one of those dates;
+        an unconfirmed outlier (seen from a noisy fallback fetch) is far more
+        likely to be bad data than a genuine payout many times the norm.
+        """
+        if has_confirming_date:
+            return True
+        recent = list(
+            Dividend.objects.filter(stock=stock, date__lt=ex_date).order_by('-date')[:4]
+        )
+        if not recent:
+            return True
+        avg = sum(float(d.amount) for d in recent) / len(recent)
+        if avg <= 0:
+            return True
+        ratio = float(amount) / avg
+        return 0.34 <= ratio <= 3.0
+
+    def _find_nearby_dividend(self, stock: Stock, ex_date, amount, window_days=5, tolerance=0.15):
+        """
+        Look for an already-recorded dividend within `window_days` of ex_date
+        whose amount is within `tolerance` of the new one. Used to catch the
+        same real-world payment being re-reported under a slightly different
+        ex-date (e.g. a fallback source disagreeing with the primary source
+        by a few days) instead of recording it as a second, distinct dividend.
+        """
+        lo, hi = ex_date - timedelta(days=window_days), ex_date + timedelta(days=window_days)
+        candidates = Dividend.objects.filter(stock=stock, date__gte=lo, date__lte=hi).exclude(date=ex_date)
+        for c in candidates:
+            if c.amount and abs(float(c.amount) - float(amount)) <= float(c.amount) * tolerance:
+                return c
+        return None
+
     def save_dividends(self, symbol: str) -> int:
         """
         Fetch and save dividend history to database.
@@ -489,6 +526,14 @@ class StockDataFetcher:
         else (see dividend_source_name) — both return full history, including
         declaration_date/payment_date, in a single request. Falls back to
         yfinance when the primary source is unavailable or rate-limited.
+
+        Incoming rows are sanity-checked before being persisted: an amount far
+        outside the stock's recent range with no declaration_date/payment_date
+        to confirm it is rejected outright (see _is_plausible_dividend_amount),
+        and an ex-date landing within a few days of an already-recorded
+        dividend of similar size is treated as the same event rather than a
+        duplicate (see _find_nearby_dividend) — both patterns have shown up
+        from noisy upstream data (yfinance fallback / rate-limited re-fetches).
         """
         stock = Stock.objects.filter(symbol=symbol.upper()).first()
         if not stock:
@@ -518,6 +563,22 @@ class StockDataFetcher:
                     # a declaration_date, or the dividend has already gone ex so a missing
                     # declaration_date means it will never have one — not "not announced yet".
                     decl_checked = decl_date is not None or ex_date < date.today()
+
+                    has_confirming_date = pay_date is not None or decl_date is not None
+                    if not self._is_plausible_dividend_amount(stock, ex_date, amount_str, has_confirming_date):
+                        logger.warning(
+                            f"Skipping implausible {source} dividend for {symbol} on {ex_date}: "
+                            f"amount={amount_str}, no declaration/payment date to confirm it"
+                        )
+                        continue
+                    if not has_confirming_date:
+                        nearby = self._find_nearby_dividend(stock, ex_date, amount_str)
+                        if nearby is not None:
+                            logger.warning(
+                                f"Skipping {source} dividend for {symbol} on {ex_date} (amount={amount_str}): "
+                                f"treating as the same event already recorded on {nearby.date}"
+                            )
+                            continue
 
                     defaults = {'amount': Decimal(str(amount_str))}
                     if pay_date is not None:
@@ -566,6 +627,22 @@ class StockDataFetcher:
             try:
                 date_obj = div_date.date() if hasattr(div_date, 'date') else div_date
                 pay_date = payment_map.get(date_obj)
+
+                has_confirming_date = pay_date is not None
+                if not self._is_plausible_dividend_amount(stock, date_obj, amount, has_confirming_date):
+                    logger.warning(
+                        f"Skipping implausible yfinance dividend for {symbol} on {date_obj}: "
+                        f"amount={amount}, no payment date to confirm it"
+                    )
+                    continue
+                if not has_confirming_date:
+                    nearby = self._find_nearby_dividend(stock, date_obj, amount)
+                    if nearby is not None:
+                        logger.warning(
+                            f"Skipping yfinance dividend for {symbol} on {date_obj} (amount={amount}): "
+                            f"treating as the same event already recorded on {nearby.date}"
+                        )
+                        continue
 
                 defaults = {'amount': Decimal(str(amount))}
                 if pay_date is not None:

@@ -530,6 +530,8 @@ def portfolio_detail_view(request, pk):
         qty = float(div.quantity) if div.quantity else None
         div_per_share = round(float(div.amount) / qty, 4) if qty else None
         chips = []
+        if not pay_date_known:
+            chips.append("⚠ Estimated date — payment date not yet known, showing ex-dividend date instead")
         if qty:
             chips.append(f"Shares: {_fmt_qty(qty)}")
         if div_per_share:

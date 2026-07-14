@@ -364,7 +364,7 @@
          data-extra="{{ entry.extra|default:'' }}"
          data-description="{{ entry.description }}">
         <span class="activity-chevron{% if not entry.extra %} activity-chevron-hidden{% endif %}">&#9658;</span>
-        <span class="activity-date">{{ entry.date|date:"d/m/Y" }}{% if entry.date_estimated %}<span class="activity-est" title="Pay date unknown — showing ex-dividend date">ex</span>{% endif %}</span>
+        <span class="activity-date">{{ entry.date|date:"d/m/Y" }}{% if entry.date_estimated %}<span class="activity-date-flag" title="Payment date unknown — showing the ex-dividend date instead, actual date may differ">&#9888; est. date</span>{% endif %}</span>
         <span class="tx-badge {{ entry.type }}">{{ entry.label }}</span>
         {% if entry.is_manual %}<span class="activity-est" style="color:#64748b;" title="Manually created/edited — sync will never overwrite this">manual</span>{% endif %}
         <span class="activity-desc">{{ entry.description }}</span>

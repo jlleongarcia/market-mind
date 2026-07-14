@@ -271,7 +271,7 @@
             </td>
             <td class="text-sm text-muted">
                 {{ entry.date|date:"d/m/Y" }}
-                {% if entry.date_estimated %}<span title="Pay date unknown — showing ex-dividend date" style="color:#f59e0b;font-size:0.7rem;margin-left:3px;">ex</span>{% endif %}
+                {% if entry.date_estimated %}<span class="activity-date-flag" title="Payment date unknown — showing the ex-dividend date instead, actual date may differ">&#9888; est. date</span>{% endif %}
             </td>
             <td class="text-sm text-muted">{{ entry.portfolio_name }}</td>
             <td><span class="tx-badge {{ entry.type }}">{{ entry.label }}</span></td>

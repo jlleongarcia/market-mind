@@ -1134,12 +1134,14 @@ class PortfolioCalculationService:
         updated = 0
         deleted = 0
         skipped = 0
+        seen_keys = set()
 
         for div in research_divs:
             symbol     = div.stock.symbol
             ex_date    = div.date          # research.Dividend.date is the ex-date
             check_date = ex_date - timedelta(days=1)
             key        = (symbol, ex_date)
+            seen_keys.add(key)
 
             if key in existing_manual:
                 skipped += 1
@@ -1211,6 +1213,14 @@ class PortfolioCalculationService:
             )
             existing_auto[key] = new_record
             created += 1
+
+        # Any auto-recorded row whose (symbol, ex_date) no longer has a matching
+        # research.Dividend is orphaned — the source record was deleted or its
+        # ex_date corrected (e.g. bad-data cleanup) since this row was created.
+        for key, record in list(existing_auto.items()):
+            if key not in seen_keys:
+                record.delete()
+                deleted += 1
 
         result = {'created': created, 'updated': updated, 'deleted': deleted, 'skipped': skipped}
         if refresh_errors:
