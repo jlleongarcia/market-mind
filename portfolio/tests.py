@@ -130,6 +130,41 @@ class AutoRecordDividendsTests(TestCase):
         self.assertEqual(result['deleted'], 0)
         self.assertEqual(result['skipped'], 1)
 
+    def test_oversized_amount_is_skipped_without_crashing_the_sync(self):
+        """
+        quantity x per-share amount can exceed Dividend.amount's max_digits=10
+        for a large enough position (a big institutional-size share count).
+        That row should be skipped and reported, not take the whole sync down.
+        """
+        huge_stock = Stock.objects.create(symbol='HUGE', name='Huge Corp', currency='USD')
+        ResearchDividend.objects.create(
+            stock=huge_stock,
+            date=self.ex_date,
+            payment_date=self.ex_date + timezone.timedelta(days=5),
+            amount=Decimal('1.00'),
+        )
+        Transaction.objects.create(
+            portfolio=self.portfolio,
+            symbol='HUGE',
+            transaction_type='BUY',
+            quantity=Decimal('100000000'),
+            price=Decimal('1'),
+            transaction_date=timezone.make_aware(
+                timezone.datetime.combine(
+                    self.ex_date - timezone.timedelta(days=10),
+                    timezone.datetime.min.time(),
+                )
+            ),
+        )
+        self._buy(10, days_before_ex=10)  # unrelated ACME dividend should still process fine
+
+        result = PortfolioCalculationService.auto_record_dividends(self.portfolio)
+
+        self.assertEqual(result['created'], 1)
+        self.assertIn('HUGE', result.get('errors', []))
+        self.assertEqual(PortfolioDividend.objects.filter(portfolio=self.portfolio, symbol='ACME').count(), 1)
+        self.assertEqual(PortfolioDividend.objects.filter(portfolio=self.portfolio, symbol='HUGE').count(), 0)
+
 
 class SpinOffCostBasisTests(TestCase):
     """

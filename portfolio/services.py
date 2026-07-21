@@ -4,10 +4,12 @@ Handles complex portfolio analytics and calculations
 """
 import logging
 import requests
+from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
 from django.db.models import Max, Min, Sum, Q
 from research.models import Dividend as ResearchDividend, FinancialMetrics, HistoricalPrice, Stock
 from research.services import PriceCacheService, infer_dividend_frequency
@@ -1092,9 +1094,16 @@ class PortfolioCalculationService:
         refresh_errors = []
 
         def _refresh(symbol):
-            fetcher.save_dividends(symbol)
-            fetcher.save_financial_metrics(symbol)   # also updates dividend_rate
-            return symbol
+            from django.db import close_old_connections
+            try:
+                fetcher.save_dividends(symbol)
+                fetcher.save_financial_metrics(symbol)   # also updates dividend_rate
+                return symbol
+            finally:
+                # These threads aren't request threads, so Django never closes
+                # their DB connections on its own — each stale symbol synced
+                # this way would otherwise leak one connection per sync.
+                close_old_connections()
 
         with ThreadPoolExecutor(max_workers=5) as pool:
             futures = {pool.submit(_refresh, s): s for s in stale}
@@ -1134,7 +1143,41 @@ class PortfolioCalculationService:
         updated = 0
         deleted = 0
         skipped = 0
+        errors = []
         seen_keys = set()
+
+        # _shares_held_on_date re-queries and replays a symbol's full transaction
+        # history from scratch for every dividend row — fine for a handful of
+        # dividends, but for a large/long-held portfolio (many symbols x years
+        # of history) that's enough queries to blow past the request timeout.
+        # research_divs is ordered (symbol, date) ascending, so check_date only
+        # moves forward within a symbol: a single forward sweep per symbol
+        # through its transactions, done once here, replaces all of that.
+        tx_by_symbol = defaultdict(list)
+        for tx in Transaction.objects.filter(
+            portfolio=portfolio, symbol__in=symbols, transaction_type__in=['BUY', 'SELL', 'SPOF']
+        ).order_by('symbol', 'transaction_date'):
+            tx_by_symbol[tx.symbol].append(tx)
+
+        tx_cursor = {}       # next unconsumed transaction index, per symbol
+        shares_running = {}  # running share balance, per symbol
+
+        def shares_held_on(symbol, as_of_date):
+            txs = tx_by_symbol[symbol]
+            i = tx_cursor.get(symbol, 0)
+            shares = shares_running.get(symbol, Decimal('0'))
+            while i < len(txs) and txs[i].transaction_date.date() <= as_of_date:
+                tx = txs[i]
+                shares += tx.quantity if tx.transaction_type in ('BUY', 'SPOF') else -tx.quantity
+                i += 1
+            tx_cursor[symbol] = i
+            shares_running[symbol] = shares
+            return max(shares, Decimal('0'))
+
+        # Same rate applies to every ex-date of a given stock — resolving
+        # TaxWithholdingRule precedence (up to 3 queries) once per stock instead
+        # of once per dividend row.
+        tax_rate_cache = {}
 
         for div in research_divs:
             symbol     = div.stock.symbol
@@ -1149,70 +1192,87 @@ class PortfolioCalculationService:
 
             existing_record = existing_auto.get(key)
 
-            shares = PortfolioCalculationService._shares_held_on_date(
-                portfolio, symbol, check_date
-            )
-            if shares <= 0:
-                # A backfilled sell (or a correction) can drop entitlement to
-                # zero after the row was created — the dividend shouldn't
-                # exist for this portfolio at all in that case.
-                if existing_record is not None:
-                    existing_record.delete()
-                    del existing_auto[key]
-                    deleted += 1
-                continue
+            try:
+                # A savepoint per row: a DataError (e.g. amount overflowing
+                # Dividend.amount's max_digits) must only roll back this row,
+                # not poison the whole sync's DB transaction/connection.
+                with transaction.atomic():
+                    shares = shares_held_on(symbol, check_date)
+                    if shares <= 0:
+                        # A backfilled sell (or a correction) can drop entitlement to
+                        # zero after the row was created — the dividend shouldn't
+                        # exist for this portfolio at all in that case.
+                        if existing_record is not None:
+                            existing_record.delete()
+                            del existing_auto[key]
+                            deleted += 1
+                        continue
 
-            # Use the research-side payment_date when available so the portfolio
-            # entry sorts and displays correctly.
-            payment_date = getattr(div, 'payment_date', None)
+                    # Use the research-side payment_date when available so the portfolio
+                    # entry sorts and displays correctly.
+                    payment_date = getattr(div, 'payment_date', None)
 
-            # Entitlement (shares held) isn't enough on its own — Alpha Vantage
-            # can report a dividend that's been declared but hasn't actually
-            # been paid yet, which would otherwise show up in the ledger as
-            # income already received. Gate on the dividend having actually
-            # occurred: payment_date when known, else ex_date as a proxy.
-            payable_date = payment_date or ex_date
-            if payable_date > date.today():
-                continue
+                    # Entitlement (shares held) isn't enough on its own — Alpha Vantage
+                    # can report a dividend that's been declared but hasn't actually
+                    # been paid yet, which would otherwise show up in the ledger as
+                    # income already received. Gate on the dividend having actually
+                    # occurred: payment_date when known, else ex_date as a proxy.
+                    payable_date = payment_date or ex_date
+                    if payable_date > date.today():
+                        continue
 
-            total_amount = (div.amount * shares).quantize(Decimal('0.01'))
+                    total_amount = (div.amount * shares).quantize(Decimal('0.01'))
 
-            rate = PortfolioCalculationService.get_withholding_tax_rate(portfolio.user, div.stock)
-            tax_amount = (
-                (total_amount * rate / 100).quantize(Decimal('0.01'))
-                if rate is not None else Decimal('0')
-            )
+                    if div.stock_id not in tax_rate_cache:
+                        tax_rate_cache[div.stock_id] = PortfolioCalculationService.get_withholding_tax_rate(
+                            portfolio.user, div.stock
+                        )
+                    rate = tax_rate_cache[div.stock_id]
+                    tax_amount = (
+                        (total_amount * rate / 100).quantize(Decimal('0.01'))
+                        if rate is not None else Decimal('0')
+                    )
 
-            if existing_record is not None:
-                changed = (
-                    existing_record.quantity != shares
-                    or existing_record.amount != total_amount
-                    or existing_record.tax != tax_amount
-                    or existing_record.payment_date != payment_date
+                    if existing_record is not None:
+                        changed = (
+                            existing_record.quantity != shares
+                            or existing_record.amount != total_amount
+                            or existing_record.tax != tax_amount
+                            or existing_record.payment_date != payment_date
+                        )
+                        if changed:
+                            existing_record.quantity = shares
+                            existing_record.amount = total_amount
+                            existing_record.tax = tax_amount
+                            existing_record.payment_date = payment_date
+                            existing_record.save(update_fields=['quantity', 'amount', 'tax', 'payment_date'])
+                            updated += 1
+                        else:
+                            skipped += 1
+                        continue
+
+                    new_record = PortfolioDividend.objects.create(
+                        portfolio=portfolio,
+                        symbol=symbol,
+                        amount=total_amount,
+                        quantity=shares,
+                        tax=tax_amount,
+                        payment_date=payment_date,
+                        ex_dividend_date=ex_date,
+                        notes='Auto-recorded',
+                    )
+                    existing_auto[key] = new_record
+                    created += 1
+            except Exception as e:
+                # A single bad row (e.g. an amount too large for Dividend.amount's
+                # max_digits=10 once multiplied by a large share count) shouldn't
+                # take the whole sync down — log it, skip it, keep going.
+                logger.error(
+                    f"auto_record_dividends: skipping {symbol} ex-date {ex_date} "
+                    f"for portfolio {portfolio.pk}: {e}"
                 )
-                if changed:
-                    existing_record.quantity = shares
-                    existing_record.amount = total_amount
-                    existing_record.tax = tax_amount
-                    existing_record.payment_date = payment_date
-                    existing_record.save(update_fields=['quantity', 'amount', 'tax', 'payment_date'])
-                    updated += 1
-                else:
-                    skipped += 1
+                errors.append(symbol)
                 continue
-
-            new_record = PortfolioDividend.objects.create(
-                portfolio=portfolio,
-                symbol=symbol,
-                amount=total_amount,
-                quantity=shares,
-                tax=tax_amount,
-                payment_date=payment_date,
-                ex_dividend_date=ex_date,
-                notes='Auto-recorded',
-            )
-            existing_auto[key] = new_record
-            created += 1
 
         # Any auto-recorded row whose (symbol, ex_date) no longer has a matching
         # research.Dividend is orphaned — the source record was deleted or its
@@ -1225,4 +1285,6 @@ class PortfolioCalculationService:
         result = {'created': created, 'updated': updated, 'deleted': deleted, 'skipped': skipped}
         if refresh_errors:
             result['refresh_errors'] = refresh_errors
+        if errors:
+            result['errors'] = errors
         return result

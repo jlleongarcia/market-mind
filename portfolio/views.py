@@ -956,7 +956,17 @@ def transaction_create_view(request, portfolio_id):
 def portfolio_sync_dividends(request, pk):
     """Refresh research dividend data from yfinance, then auto-record qualifying payments."""
     portfolio = get_object_or_404(Portfolio, pk=pk, user=request.user)
-    result = PortfolioCalculationService.auto_record_dividends(portfolio)
+    try:
+        result = PortfolioCalculationService.auto_record_dividends(portfolio)
+    except Exception as e:
+        logger.error(f"auto_record_dividends failed for portfolio {pk}: {e}")
+        messages.error(
+            request,
+            "Dividend sync failed unexpectedly. Nothing was changed — please try again "
+            "or contact support if this keeps happening."
+        )
+        return redirect('portfolio:portfolio_detail_view', pk=pk)
+
     parts = []
     if result['created'] > 0:
         parts.append(f"{result['created']} recorded")
@@ -973,6 +983,11 @@ def portfolio_sync_dividends(request, pk):
             request,
             f"Could not refresh data for: {', '.join(result['refresh_errors'])}. "
             "Those symbols may show stale dividends."
+        )
+    if result.get('errors'):
+        messages.warning(
+            request,
+            f"Skipped some dividends due to unexpected data for: {', '.join(result['errors'])}."
         )
     return redirect('portfolio:portfolio_detail_view', pk=pk)
 
