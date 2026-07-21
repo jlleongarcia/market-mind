@@ -481,6 +481,21 @@ class StockDataFetcher:
             logger.warning(f"yfinance payment date map failed for {symbol}: {e}")
         return payment_map
 
+    def _split_adjustment_factor(self, stock: Stock, from_date, to_date) -> float:
+        """
+        Cumulative share-multiplication factor for every split between
+        from_date (exclusive) and to_date (inclusive) — e.g. 2.0 for a single
+        2-for-1 split. A per-share amount recorded at from_date, expressed in
+        to_date's post-split terms, should be divided by this factor: a $2.00
+        dividend before a 2-for-1 split is the same real payout as $1.00 after
+        it, not an implausible drop.
+        """
+        factor = 1.0
+        for split in StockSplit.objects.filter(stock=stock, date__gt=from_date, date__lte=to_date):
+            if split.split_to:
+                factor *= split.split_from / split.split_to
+        return factor
+
     def _is_plausible_dividend_amount(self, stock: Stock, ex_date, amount, has_confirming_date: bool) -> bool:
         """
         Reject an incoming dividend amount that's wildly inconsistent with the
@@ -489,6 +504,11 @@ class StockDataFetcher:
         is always confirmed by the source with at least one of those dates;
         an unconfirmed outlier (seen from a noisy fallback fetch) is far more
         likely to be bad data than a genuine payout many times the norm.
+
+        Recent amounts are split-adjusted to ex_date's terms first — otherwise
+        a stock split between them reads as a several-fold "implausible" jump
+        or drop when it's actually the same real payout (seen live: MO's
+        $21.91 pre-split entry next to $0.69/$0.75 post-split ones).
         """
         if has_confirming_date:
             return True
@@ -497,7 +517,11 @@ class StockDataFetcher:
         )
         if not recent:
             return True
-        avg = sum(float(d.amount) for d in recent) / len(recent)
+        adjusted = [
+            float(d.amount) / (self._split_adjustment_factor(stock, d.date, ex_date) or 1.0)
+            for d in recent
+        ]
+        avg = sum(adjusted) / len(adjusted)
         if avg <= 0:
             return True
         ratio = float(amount) / avg
