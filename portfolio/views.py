@@ -570,6 +570,12 @@ def portfolio_detail_view(request, pk):
             cash_by_currency[cur] += (p - t)
         elif tx.transaction_type == 'BUY':
             cash_by_currency[cur] -= (p * q + c)
+        elif tx.transaction_type == 'SPOF':
+            # A spin-off's established cost basis is treated as a cash outflow,
+            # same as a Buy — matches the brokerage statement convention (the
+            # cost allocated to the new shares reduces available cash) rather
+            # than modeling it as a free, non-cash share grant.
+            cash_by_currency[cur] -= (p * q + c)
         elif tx.transaction_type == 'SELL':
             cash_by_currency[cur] += (p * q - c)
         elif tx.transaction_type == 'DIV':
