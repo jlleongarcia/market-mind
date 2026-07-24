@@ -99,6 +99,19 @@ TEMPLATES = [
 WSGI_APPLICATION = 'main.wsgi.application'
 
 
+# File-based rather than the default in-memory cache: gunicorn runs multiple
+# worker processes, each with its own separate memory, so a per-process cache
+# would let flags like "already refreshed today" (dividend sync) silently
+# not apply across workers — a retry landing on a different worker would redo
+# the same expensive external-API refresh. A shared file store fixes that.
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+        'LOCATION': BASE_DIR / 'django_cache',
+    }
+}
+
+
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 

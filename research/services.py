@@ -481,7 +481,7 @@ class StockDataFetcher:
             logger.warning(f"yfinance payment date map failed for {symbol}: {e}")
         return payment_map
 
-    def _split_adjustment_factor(self, stock: Stock, from_date, to_date) -> float:
+    def _split_adjustment_factor(self, stock: Stock, from_date, to_date, splits=None) -> float:
         """
         Cumulative share-multiplication factor for every split between
         from_date (exclusive) and to_date (inclusive) — e.g. 2.0 for a single
@@ -489,14 +489,26 @@ class StockDataFetcher:
         to_date's post-split terms, should be divided by this factor: a $2.00
         dividend before a 2-for-1 split is the same real payout as $1.00 after
         it, not an implausible drop.
+
+        `splits` may be a preloaded list of this stock's StockSplit rows —
+        save_dividends passes one in to avoid a DB round trip per call when
+        checking many dividends for the same stock in one batch; a stock's
+        full split history is at most a handful of rows, cheap to filter in
+        Python instead.
         """
+        if splits is None:
+            splits = StockSplit.objects.filter(stock=stock, date__gt=from_date, date__lte=to_date)
+        else:
+            splits = [s for s in splits if from_date < s.date <= to_date]
         factor = 1.0
-        for split in StockSplit.objects.filter(stock=stock, date__gt=from_date, date__lte=to_date):
+        for split in splits:
             if split.split_to:
                 factor *= split.split_from / split.split_to
         return factor
 
-    def _is_plausible_dividend_amount(self, stock: Stock, ex_date, amount, has_confirming_date: bool) -> bool:
+    def _is_plausible_dividend_amount(
+        self, stock: Stock, ex_date, amount, has_confirming_date: bool, recent_dividends=None, splits=None
+    ) -> bool:
         """
         Reject an incoming dividend amount that's wildly inconsistent with the
         stock's own recent dividend history when it carries no
@@ -509,16 +521,21 @@ class StockDataFetcher:
         a stock split between them reads as a several-fold "implausible" jump
         or drop when it's actually the same real payout (seen live: MO's
         $21.91 pre-split entry next to $0.69/$0.75 post-split ones).
+
+        `recent_dividends`/`splits` may be preloaded lists of this stock's
+        Dividend/StockSplit rows — see save_dividends, which passes them in
+        to avoid a DB round trip per call.
         """
         if has_confirming_date:
             return True
-        recent = list(
-            Dividend.objects.filter(stock=stock, date__lt=ex_date).order_by('-date')[:4]
-        )
+        if recent_dividends is None:
+            recent = list(Dividend.objects.filter(stock=stock, date__lt=ex_date).order_by('-date')[:4])
+        else:
+            recent = sorted((d for d in recent_dividends if d.date < ex_date), key=lambda d: d.date, reverse=True)[:4]
         if not recent:
             return True
         adjusted = [
-            float(d.amount) / (self._split_adjustment_factor(stock, d.date, ex_date) or 1.0)
+            float(d.amount) / (self._split_adjustment_factor(stock, d.date, ex_date, splits=splits) or 1.0)
             for d in recent
         ]
         avg = sum(adjusted) / len(adjusted)
@@ -527,16 +544,23 @@ class StockDataFetcher:
         ratio = float(amount) / avg
         return 0.34 <= ratio <= 3.0
 
-    def _find_nearby_dividend(self, stock: Stock, ex_date, amount, window_days=5, tolerance=0.15):
+    def _find_nearby_dividend(self, stock: Stock, ex_date, amount, window_days=5, tolerance=0.15, candidates=None):
         """
         Look for an already-recorded dividend within `window_days` of ex_date
         whose amount is within `tolerance` of the new one. Used to catch the
         same real-world payment being re-reported under a slightly different
         ex-date (e.g. a fallback source disagreeing with the primary source
         by a few days) instead of recording it as a second, distinct dividend.
+
+        `candidates` may be a preloaded list of this stock's Dividend rows —
+        see save_dividends, which passes one in to avoid a DB round trip per
+        call.
         """
         lo, hi = ex_date - timedelta(days=window_days), ex_date + timedelta(days=window_days)
-        candidates = Dividend.objects.filter(stock=stock, date__gte=lo, date__lte=hi).exclude(date=ex_date)
+        if candidates is None:
+            candidates = Dividend.objects.filter(stock=stock, date__gte=lo, date__lte=hi).exclude(date=ex_date)
+        else:
+            candidates = [c for c in candidates if lo <= c.date <= hi and c.date != ex_date]
         for c in candidates:
             if c.amount and abs(float(c.amount) - float(amount)) <= float(c.amount) * tolerance:
                 return c
@@ -565,6 +589,21 @@ class StockDataFetcher:
             if not stock:
                 return 0
 
+        # Preloaded once per call and threaded through _is_plausible_dividend_amount /
+        # _find_nearby_dividend below — those used to each run their own DB query per
+        # incoming row, which for a stock with decades of history (common for blue
+        # chips, and the norm on the yfinance fallback path) multiplied into several
+        # queries per row across a full history refetch. A stock's full
+        # dividend/split history is at most a few hundred rows, cheap to filter in
+        # Python instead. Updated in place as rows are persisted below so
+        # same-batch duplicates are still caught exactly as before.
+        known_dividends = list(Dividend.objects.filter(stock=stock))
+        known_splits = list(StockSplit.objects.filter(stock=stock))
+
+        def _remember(dividend_obj):
+            known_dividends[:] = [d for d in known_dividends if d.date != dividend_obj.date]
+            known_dividends.append(dividend_obj)
+
         # --- Primary source (FMP or Alpha Vantage, by exchange) ---
         source = self.dividend_source_name(stock)
         primary_data = self._fetch_dividends_primary(stock)
@@ -589,14 +628,17 @@ class StockDataFetcher:
                     decl_checked = decl_date is not None or ex_date < date.today()
 
                     has_confirming_date = pay_date is not None or decl_date is not None
-                    if not self._is_plausible_dividend_amount(stock, ex_date, amount_str, has_confirming_date):
+                    if not self._is_plausible_dividend_amount(
+                        stock, ex_date, amount_str, has_confirming_date,
+                        recent_dividends=known_dividends, splits=known_splits,
+                    ):
                         logger.warning(
                             f"Skipping implausible {source} dividend for {symbol} on {ex_date}: "
                             f"amount={amount_str}, no declaration/payment date to confirm it"
                         )
                         continue
                     if not has_confirming_date:
-                        nearby = self._find_nearby_dividend(stock, ex_date, amount_str)
+                        nearby = self._find_nearby_dividend(stock, ex_date, amount_str, candidates=known_dividends)
                         if nearby is not None:
                             logger.warning(
                                 f"Skipping {source} dividend for {symbol} on {ex_date} (amount={amount_str}): "
@@ -627,6 +669,7 @@ class StockDataFetcher:
                         if decl_checked:
                             obj.declaration_date_checked = True
                         obj.save()
+                    _remember(obj)
 
                     if created:
                         created_count += 1
@@ -653,14 +696,17 @@ class StockDataFetcher:
                 pay_date = payment_map.get(date_obj)
 
                 has_confirming_date = pay_date is not None
-                if not self._is_plausible_dividend_amount(stock, date_obj, amount, has_confirming_date):
+                if not self._is_plausible_dividend_amount(
+                    stock, date_obj, amount, has_confirming_date,
+                    recent_dividends=known_dividends, splits=known_splits,
+                ):
                     logger.warning(
                         f"Skipping implausible yfinance dividend for {symbol} on {date_obj}: "
                         f"amount={amount}, no payment date to confirm it"
                     )
                     continue
                 if not has_confirming_date:
-                    nearby = self._find_nearby_dividend(stock, date_obj, amount)
+                    nearby = self._find_nearby_dividend(stock, date_obj, amount, candidates=known_dividends)
                     if nearby is not None:
                         logger.warning(
                             f"Skipping yfinance dividend for {symbol} on {date_obj} (amount={amount}): "
@@ -682,6 +728,7 @@ class StockDataFetcher:
                     if pay_date is not None:
                         obj.payment_date = pay_date
                     obj.save()
+                _remember(obj)
 
                 if created:
                     created_count += 1
