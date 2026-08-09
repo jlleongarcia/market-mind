@@ -310,6 +310,8 @@
                 {% if yr.invested %}<div class="yn-metric"><span class="yn-label">Invested</span><span class="yn-val yn-neg">-{{ native_currency }}&nbsp;{{ yr.invested|floatformat:2 }}</span></div>{% endif %}
                 {% if yr.sold %}<div class="yn-metric"><span class="yn-label">Sold</span><span class="yn-val yn-pos">+{{ native_currency }}&nbsp;{{ yr.sold|floatformat:2 }}</span></div>{% endif %}
                 {% if yr.passive_income %}<div class="yn-metric"><span class="yn-label">Passive Income</span><span class="yn-val yn-pos">+{{ native_currency }}&nbsp;{{ yr.passive_income|floatformat:2 }}</span></div>{% endif %}
+                {% if yr.premium_received %}<div class="yn-metric"><span class="yn-label">Premium Received</span><span class="yn-val yn-pos">+{{ native_currency }}&nbsp;{{ yr.premium_received|floatformat:2 }}</span></div>{% endif %}
+                {% if yr.premium_paid %}<div class="yn-metric"><span class="yn-label">Premium Paid</span><span class="yn-val yn-neg">-{{ native_currency }}&nbsp;{{ yr.premium_paid|floatformat:2 }}</span></div>{% endif %}
                 {% if yr.withdrawals %}<div class="yn-metric"><span class="yn-label">Withdrawn</span><span class="yn-val yn-neg">-{{ native_currency }}&nbsp;{{ yr.withdrawals|floatformat:2 }}</span></div>{% endif %}
             </div>
         </div>
@@ -323,6 +325,8 @@
                     {% if cr.invested %}<span class="yc-item"><span class="yc-label">inv</span><span class="yc-val yn-neg">-{{ cr.currency }}&nbsp;{{ cr.invested|floatformat:2 }}</span></span>{% endif %}
                     {% if cr.sold %}<span class="yc-item"><span class="yc-label">sold</span><span class="yc-val yn-pos">+{{ cr.currency }}&nbsp;{{ cr.sold|floatformat:2 }}</span></span>{% endif %}
                     {% if cr.passive_income %}<span class="yc-item"><span class="yc-label">income</span><span class="yc-val yn-pos">+{{ cr.currency }}&nbsp;{{ cr.passive_income|floatformat:2 }}</span></span>{% endif %}
+                    {% if cr.premium_received %}<span class="yc-item"><span class="yc-label">prem recv</span><span class="yc-val yn-pos">+{{ cr.currency }}&nbsp;{{ cr.premium_received|floatformat:2 }}</span></span>{% endif %}
+                    {% if cr.premium_paid %}<span class="yc-item"><span class="yc-label">prem paid</span><span class="yc-val yn-neg">-{{ cr.currency }}&nbsp;{{ cr.premium_paid|floatformat:2 }}</span></span>{% endif %}
                     {% if cr.withdrawals %}<span class="yc-item"><span class="yc-label">wit</span><span class="yc-val yn-neg">-{{ cr.currency }}&nbsp;{{ cr.withdrawals|floatformat:2 }}</span></span>{% endif %}
                 </span>
             </div>
@@ -353,6 +357,8 @@
             <span class="tx-badge dep" data-type="dep" title="Click to hide Deposit">Deposit</span>
             <span class="tx-badge wit" data-type="wit" title="Click to hide Withdrawal">Withdrawal</span>
             <span class="tx-badge exc" data-type="exc" title="Click to hide Exchange">Exchange</span>
+            <span class="tx-badge opt_paid" data-type="opt_paid" title="Click to hide Premium Paid">Premium Paid</span>
+            <span class="tx-badge opt_rec" data-type="opt_rec" title="Click to hide Premium Received">Premium Received</span>
             <span class="ledger-legend-sep"></span>
             <button type="button" class="ledger-legend-action" id="ledgerSelectAll">All</button>
             <button type="button" class="ledger-legend-action" id="ledgerSelectNone">None</button>

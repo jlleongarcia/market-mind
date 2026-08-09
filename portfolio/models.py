@@ -142,6 +142,8 @@ class Transaction(models.Model):
         ('DEP', 'Deposit'),
         ('WIT', 'Withdrawal'),
         ('EXC', 'Exchange'),
+        ('OPT_PAID', 'Option Premium Paid'),
+        ('OPT_REC', 'Option Premium Received'),
     ]
 
     portfolio = models.ForeignKey(Portfolio, on_delete=models.CASCADE, related_name='transactions')
@@ -215,7 +217,7 @@ class Transaction(models.Model):
     def total_amount(self):
         """Total transaction amount including commission"""
         base_amount = self.quantity * self.price
-        if self.transaction_type in ('BUY', 'SPOF'):
+        if self.transaction_type in ('BUY', 'SPOF', 'OPT_PAID'):
             return base_amount + self.commission
         return base_amount - self.commission
     

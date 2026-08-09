@@ -523,6 +523,26 @@ def portfolio_detail_view(request, pk):
                 'net_class': net_cls,
                 'extra': '||'.join(chips) if chips else None,
             })
+        elif tx.transaction_type in ('OPT_PAID', 'OPT_REC'):
+            is_paid = tx.transaction_type == 'OPT_PAID'
+            chips = [f"Qty: {_fmt_qty(qty)}", f"Premium/Share: {_fmt_cur(tx_cur, price)}"]
+            if commission:
+                chips.append(f"Commission: {_fmt_cur(tx_cur, commission)}")
+            if tx.broker:
+                chips.append(f"Broker: {tx.broker}")
+            desc = f"Option premium {'paid' if is_paid else 'received'}"
+            if tx.symbol:
+                desc += f" — {tx.symbol}"
+            net_amount = price * qty + commission if is_paid else price * qty - commission
+            ledger.append({
+                'tx_id': tx.id, 'date': tx_date,
+                'type': 'opt_paid' if is_paid else 'opt_rec',
+                'label': 'Premium Paid' if is_paid else 'Premium Received',
+                'description': desc,
+                'net_display': _net_display('negative' if is_paid else 'positive', tx_cur, net_amount),
+                'net_class': 'negative' if is_paid else 'positive',
+                'extra': '||'.join(chips),
+            })
 
     for div in portfolio.dividends.all():
         pay_date_known = bool(div.payment_date)
@@ -587,6 +607,10 @@ def portfolio_detail_view(request, pk):
             cash_by_currency[from_cur] -= float(tx.from_amount) if tx.from_amount else 0
             cash_by_currency[to_cur] += float(tx.to_amount) if tx.to_amount else 0
             cash_by_currency[comm_cur] -= c
+        elif tx.transaction_type == 'OPT_PAID':
+            cash_by_currency[cur] -= (p * q + c)
+        elif tx.transaction_type == 'OPT_REC':
+            cash_by_currency[cur] += (p * q - c)
 
     # portfolio.Dividend rows (auto-synced via "Sync Dividends", or manually
     # edited from the ledger) are real cash inflows too, but live outside the
@@ -610,7 +634,8 @@ def portfolio_detail_view(request, pk):
 
     # ── Yearly summary ────────────────────────────────────────────────────────
     _zero = lambda: {'deposits': 0.0, 'withdrawals': 0.0, 'invested': 0.0,
-                     'sold': 0.0, 'dividends': 0.0, 'interest': 0.0}
+                     'sold': 0.0, 'dividends': 0.0, 'interest': 0.0,
+                     'premium_paid': 0.0, 'premium_received': 0.0}
     yearly: dict[int, dict] = defaultdict(_zero)
     # per-currency breakdown (raw amounts, no FX conversion)
     yearly_by_cur: dict[int, dict] = defaultdict(lambda: defaultdict(_zero))
@@ -638,6 +663,10 @@ def portfolio_detail_view(request, pk):
             yearly[year]['sold']        += _native(p * q - c); yearly_by_cur[year][cur]['sold']        += (p * q - c)
         elif tx.transaction_type == 'DIV':
             yearly[year]['dividends']   += _native(p * q - c - t); yearly_by_cur[year][cur]['dividends']   += (p * q - c - t)
+        elif tx.transaction_type == 'OPT_PAID':
+            yearly[year]['premium_paid']     += _native(p * q + c); yearly_by_cur[year][cur]['premium_paid']     += (p * q + c)
+        elif tx.transaction_type == 'OPT_REC':
+            yearly[year]['premium_received'] += _native(p * q - c); yearly_by_cur[year][cur]['premium_received'] += (p * q - c)
         # EXC: currency swap, not counted in yearly summary
         # SPOF: a virtual buy (cost basis only, no cash movement), not counted here either
 
@@ -663,6 +692,8 @@ def portfolio_detail_view(request, pk):
                     'dividends':     round(cd['dividends'], 2),
                     'interest':      round(cd['interest'], 2),
                     'passive_income': round(cp, 2),
+                    'premium_paid':     round(cd['premium_paid'], 2),
+                    'premium_received': round(cd['premium_received'], 2),
                 })
         yearly_summary.append({
             'year':           yr,
@@ -674,6 +705,8 @@ def portfolio_detail_view(request, pk):
             'interest':       round(d['interest'], 2),
             'passive_income': round(passive, 2),
             'net_cash':       round(d['deposits'] - d['withdrawals'] + d['interest'], 2),
+            'premium_paid':     round(d['premium_paid'], 2),
+            'premium_received': round(d['premium_received'], 2),
             'by_currency':    by_cur,
         })
 
@@ -779,7 +812,7 @@ def transaction_create_view(request, portfolio_id):
     CASH_TYPES  = {'INT', 'DEP', 'WIT'}
     STOCK_TYPES = {'BUY', 'SELL', 'DIV', 'SPOF'}
     # Types that need FX processing (all except DEP / WIT)
-    FX_TYPES    = {'BUY', 'SELL', 'DIV', 'INT', 'EXC'}
+    FX_TYPES    = {'BUY', 'SELL', 'DIV', 'INT', 'EXC', 'OPT_PAID', 'OPT_REC'}
 
     if request.method == 'POST':
         try:
@@ -836,7 +869,7 @@ def transaction_create_view(request, portfolio_id):
             elif tx_type in {'DEP', 'WIT'}:
                 tx_currency = request.POST.get('dep_wit_currency', '').strip().upper() or portfolio.native_currency
             else:
-                # INT
+                # INT / OPT_PAID / OPT_REC
                 tx_currency = request.POST.get('transaction_currency', '').strip().upper() or portfolio.native_currency
 
             # ── FX rate resolution ───────────────────────────────────────────
@@ -871,7 +904,7 @@ def transaction_create_view(request, portfolio_id):
                 if fx_rate and tx_type != 'EXC':
                     price_val = Decimal(request.POST.get('price', '0') or '0')
                     total_in_stock_cur = quantity_value * price_val
-                    if tx_type == 'BUY':
+                    if tx_type in ('BUY', 'OPT_PAID'):
                         total_in_stock_cur += Decimal(commission_value)
                     else:
                         total_in_stock_cur -= Decimal(commission_value) + Decimal(tax_value)
@@ -1033,8 +1066,9 @@ def transaction_edit_view(request, portfolio_id, tx_id):
     portfolio = get_object_or_404(Portfolio, pk=portfolio_id, user=request.user)
     transaction = get_object_or_404(Transaction, pk=tx_id, portfolio=portfolio)
 
-    STOCK_TYPES = {'BUY', 'SELL', 'DIV', 'SPOF'}
-    FX_TYPES    = {'BUY', 'SELL', 'DIV', 'INT', 'EXC'}
+    STOCK_TYPES  = {'BUY', 'SELL', 'DIV', 'SPOF'}
+    OPTION_TYPES = {'OPT_PAID', 'OPT_REC'}
+    FX_TYPES     = {'BUY', 'SELL', 'DIV', 'INT', 'EXC', 'OPT_PAID', 'OPT_REC'}
 
     if request.method == 'POST':
         old_symbol = transaction.symbol
@@ -1051,6 +1085,10 @@ def transaction_edit_view(request, portfolio_id, tx_id):
                     return redirect('portfolio:transaction_edit_view', portfolio_id=portfolio_id, tx_id=tx_id)
                 resolved_symbol = stock.symbol
                 stock_currency  = stock.currency or 'USD'
+            elif tx_type in OPTION_TYPES:
+                # Free-text underlying symbol — no Stock lookup, no position effect
+                resolved_symbol = symbol
+                stock_currency  = ''
             else:
                 resolved_symbol = ''
                 stock_currency  = ''
@@ -1090,7 +1128,7 @@ def transaction_edit_view(request, portfolio_id, tx_id):
                 if fx_rate and tx_type != 'EXC':
                     price_val = Decimal(request.POST.get('price', '0') or '0')
                     total_in_stock_cur = quantity_value * price_val
-                    if tx_type == 'BUY':
+                    if tx_type in ('BUY', 'OPT_PAID'):
                         total_in_stock_cur += Decimal(commission_value)
                     else:
                         total_in_stock_cur -= Decimal(commission_value) + Decimal(tax_value)
@@ -1369,6 +1407,7 @@ def portfolio_combined_view(request):
     TYPE_LABELS = {
         'BUY': 'Buy', 'SELL': 'Sell', 'DIV': 'Dividend', 'SPOF': 'Spin-Off',
         'INT': 'Interest', 'DEP': 'Deposit', 'WIT': 'Withdrawal', 'EXC': 'Exchange',
+        'OPT_PAID': 'Premium Paid', 'OPT_REC': 'Premium Received',
     }
     position_avg = {p['symbol']: p['average_cost'] for p in positions_detail}
     ledger = []

@@ -676,6 +676,8 @@ textarea.form-control { resize: vertical; min-height: 90px; }
 .type-tab.active-dep  { background: white; color: #4c1d95;  box-shadow: var(--shadow-sm); }
 .type-tab.active-wit  { background: white; color: #991b1b;  box-shadow: var(--shadow-sm); }
 .type-tab.active-exc  { background: white; color: #0c4a6e;  box-shadow: var(--shadow-sm); }
+.type-tab.active-opt_paid { background: white; color: #86198f;  box-shadow: var(--shadow-sm); }
+.type-tab.active-opt_rec  { background: white; color: #115e59;  box-shadow: var(--shadow-sm); }
 
 /* ============================================
    Metric boxes (position detail)
@@ -986,6 +988,8 @@ textarea.form-control { resize: vertical; min-height: 90px; }
 .tx-badge.dep  { background: #ede9fe; color: #4c1d95; }
 .tx-badge.wit  { background: #fee2e2; color: #7f1d1d; }
 .tx-badge.exc  { background: #e0f2fe; color: #0c4a6e; }
+.tx-badge.opt_paid { background: #fae8ff; color: #86198f; }
+.tx-badge.opt_rec  { background: #ccfbf1; color: #115e59; }
 
 /* ============================================
    Tab switcher (positions table)
@@ -1071,6 +1075,8 @@ textarea.form-control { resize: vertical; min-height: 90px; }
 .activity-item-dep    { border-left-color: #7c3aed; }
 .activity-item-wit    { border-left-color: #dc2626; }
 .activity-item-exc    { border-left-color: #0284c7; }
+.activity-item-opt_paid { border-left-color: #c026d3; }
+.activity-item-opt_rec  { border-left-color: #0d9488; }
 
 .activity-date {
     width: 76px;

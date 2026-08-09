@@ -41,6 +41,10 @@
                         <button type="button" class="type-tab" data-type="WIT">Withdrawal</button>
                         <button type="button" class="type-tab" data-type="EXC">Exchange</button>
                     </div>
+                    <div class="type-tabs">
+                        <button type="button" class="type-tab" data-type="OPT_PAID">Premium Paid</button>
+                        <button type="button" class="type-tab" data-type="OPT_REC">Premium Received</button>
+                    </div>
                 </div>
             </div>
             <input type="hidden" name="transaction_type" id="txType" value="{{ post.transaction_type|default:'BUY' }}">
@@ -246,6 +250,8 @@ const TYPE_CONFIG = {
     DEP:  { symbolVisible: false, symbolRequired: false, symbolHint: '',                                                       sharesVisible: false, priceVisible: true,  priceLabel: 'Amount',            commVisible: false, taxVisible: false, brokerVisible: false, totalVisible: false, fxVisible: false, excVisible: false, txCurVisible: false, depWitCurVisible: true , submitLabel: 'Record Deposit' },
     WIT:  { symbolVisible: false, symbolRequired: false, symbolHint: '',                                                       sharesVisible: false, priceVisible: true,  priceLabel: 'Amount',            commVisible: false, taxVisible: false, brokerVisible: false, totalVisible: false, fxVisible: false, excVisible: false, txCurVisible: false, depWitCurVisible: true , submitLabel: 'Record Withdrawal' },
     EXC:  { symbolVisible: false, symbolRequired: false, symbolHint: '',                                                       sharesVisible: false, priceVisible: false, priceLabel: 'Exchange Rate',     commVisible: true,  taxVisible: false, brokerVisible: false, totalVisible: false, fxVisible: false, excVisible: true,  txCurVisible: false, depWitCurVisible: false, submitLabel: 'Record Exchange' },
+    OPT_PAID: { symbolVisible: true,  symbolRequired: false, symbolHint: 'Underlying ticker (optional) — put strike/expiry/type in Notes', sharesVisible: true,  priceVisible: true,  priceLabel: 'Premium per Share', commVisible: true,  taxVisible: false, brokerVisible: true,  totalVisible: true,  fxVisible: true,  excVisible: false, txCurVisible: true,  depWitCurVisible: false, submitLabel: 'Record Premium Paid' },
+    OPT_REC:  { symbolVisible: true,  symbolRequired: false, symbolHint: 'Underlying ticker (optional) — put strike/expiry/type in Notes', sharesVisible: true,  priceVisible: true,  priceLabel: 'Premium per Share', commVisible: true,  taxVisible: false, brokerVisible: true,  totalVisible: true,  fxVisible: true,  excVisible: false, txCurVisible: true,  depWitCurVisible: false, submitLabel: 'Record Premium Received' },
 };
 
 // Embedded so the DIV tax preview works instantly with no AJAX round-trip —
@@ -258,6 +264,7 @@ const ACTIVE_CLASSES = {
     DIV:  'active-div',  SPOF: 'active-spof',
     INT:  'active-int',  DEP:  'active-dep',
     WIT:  'active-wit',  EXC:  'active-exc',
+    OPT_PAID: 'active-opt_paid', OPT_REC: 'active-opt_rec',
 };
 
 function setType(type) {
@@ -381,7 +388,7 @@ function updateFXLabel(type) {
     const fromEl = document.getElementById('fxFromCur');
     if (!fromEl) return;
     const symbolVal = document.getElementById('symbol').value.trim() || '?';
-    if (['BUY','SELL','DIV','INT'].includes(type)) {
+    if (['BUY','SELL','DIV','INT','OPT_PAID','OPT_REC'].includes(type)) {
         fromEl.textContent = document.getElementById('transaction_currency').value || '?';
     } else {
         fromEl.textContent = '?';
@@ -396,9 +403,10 @@ function updateTotal() {
     const qty   = parseFloat(document.getElementById('quantity').value) || 0;
     const price = parseFloat(document.getElementById('price').value) || 0;
     const comm  = cfg.commVisible ? (parseFloat(document.getElementById('commission').value) || 0) : 0;
-    // BUY: commission increases total cost; SELL: commission reduces net proceeds
-    const total = cfg.sharesVisible ? (type === 'SELL' ? qty * price - comm : qty * price + comm) : price;
-    document.getElementById('totalLabel').textContent = type === 'SELL' ? 'Estimated proceeds' : 'Estimated total';
+    // BUY/OPT_PAID: commission increases total cost; SELL/OPT_REC: commission reduces net proceeds
+    const isCredit = type === 'SELL' || type === 'OPT_REC';
+    const total = cfg.sharesVisible ? (isCredit ? qty * price - comm : qty * price + comm) : price;
+    document.getElementById('totalLabel').textContent = isCredit ? 'Estimated proceeds' : 'Estimated total';
     document.getElementById('totalPreview').textContent =
         total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }

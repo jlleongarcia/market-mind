@@ -234,6 +234,62 @@ class SpinOffCostBasisTests(TestCase):
         self.assertEqual(summary['Degiro']['total_invested'], 200.0)
 
 
+class OptionPremiumTests(TestCase):
+    """
+    Option premiums (OPT_PAID / OPT_REC) are cash-only entries — no Position
+    is created/updated, but they must flow into the portfolio's cash balance
+    and yearly summary like every other cash transaction type.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='tester', password='pw')
+        self.portfolio = Portfolio.objects.create(user=self.user, name='Main')
+
+    def test_total_amount_opt_paid_adds_commission(self):
+        tx = Transaction.objects.create(
+            portfolio=self.portfolio, symbol='AAPL', transaction_type='OPT_PAID',
+            quantity=Decimal('100'), price=Decimal('2.50'), commission=Decimal('1.00'),
+            transaction_date=timezone.now(),
+        )
+        self.assertEqual(tx.total_amount, Decimal('251.00'))
+
+    def test_total_amount_opt_rec_subtracts_commission(self):
+        tx = Transaction.objects.create(
+            portfolio=self.portfolio, symbol='AAPL', transaction_type='OPT_REC',
+            quantity=Decimal('100'), price=Decimal('2.50'), commission=Decimal('1.00'),
+            transaction_date=timezone.now(),
+        )
+        self.assertEqual(tx.total_amount, Decimal('249.00'))
+
+    def test_option_premium_does_not_create_a_position(self):
+        Transaction.objects.create(
+            portfolio=self.portfolio, symbol='AAPL', transaction_type='OPT_REC',
+            quantity=Decimal('100'), price=Decimal('2.50'), transaction_date=timezone.now(),
+        )
+        self.assertFalse(self.portfolio.positions.filter(symbol='AAPL').exists())
+
+    @override_settings(STATICFILES_STORAGE='django.contrib.staticfiles.storage.StaticFilesStorage')
+    def test_cash_balance_reflects_premium_paid_and_received(self):
+        self.client.force_login(self.user)
+        self.client.post(reverse('portfolio:transaction_create_view', args=[self.portfolio.id]), {
+            'transaction_type': 'OPT_REC', 'symbol': 'AAPL', 'quantity': '100', 'price': '2.50',
+            'commission': '1.00', 'transaction_date': timezone.now().date().isoformat(),
+            'transaction_currency': 'USD',
+        })
+        self.client.post(reverse('portfolio:transaction_create_view', args=[self.portfolio.id]), {
+            'transaction_type': 'OPT_PAID', 'symbol': 'MSFT', 'quantity': '50', 'price': '1.20',
+            'commission': '0.50', 'transaction_date': timezone.now().date().isoformat(),
+            'transaction_currency': 'USD',
+        })
+
+        response = self.client.get(reverse('portfolio:portfolio_detail_view', args=[self.portfolio.id]))
+        balances = {b['currency']: b['balance'] for b in response.context['cash_balances']}
+        # +249 (100*2.50 - 1) - 60.50 (50*1.20 + 0.50) = 188.50
+        self.assertEqual(balances['USD'], 188.50)
+
+        self.assertFalse(self.portfolio.positions.filter(symbol__in=['AAPL', 'MSFT']).exists())
+
+
 class DividendCrudViewTests(TestCase):
     """
     Covers the manual edit/delete UI: editing a Dividend must mark it
