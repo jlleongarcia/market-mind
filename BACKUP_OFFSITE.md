@@ -39,7 +39,73 @@ reachable over the private Tailscale network) is what makes the jail possible.
 
 ---
 
-## 1. Homelab: jailed, read-only, sftp-only account
+## 1. Homelab: recover sudo access (only if missing)
+
+Some homelab installs (Debian, or a minimized
+Ubuntu image) don't provision `sudo` for the admin user out of the box —
+`sudo <anything>` then fails with `sudo: command not found`.
+
+**Do not** turn your admin user into `root` (no shared UID 0, no merging
+accounts). Keep `root` as a separate, rarely-used emergency account, and
+grant your admin user `sudo` group membership instead — same
+least-privilege principle as the dedicated `backupsync` account below.
+
+If you don't know the root password, this requires **physical/console
+access** to the machine (SSH alone can't grant root without a known
+credential, by design):
+
+1. Reboot, and at boot hold **Shift** (BIOS) or **Esc** (UEFI) to reach the
+   GRUB menu.
+2. Select **Advanced options for Ubuntu** → the **recovery mode** entry.
+3. In the recovery menu, pick **network** first (enables networking —
+   needed for `apt`).
+4. Then pick **root** — *Drop to root shell prompt*.
+5. The filesystem is mounted read-only in recovery mode, so first:
+   ```bash
+   mount -o remount,rw /
+   ```
+6. Install sudo and grant it to your admin user (replace `username`
+   with your actual username):
+   ```bash
+   apt update && apt install -y sudo
+   usermod -aG sudo username
+   ```
+7. While you're here, set a root password too, so a future fix doesn't
+   require physical access again:
+   ```bash
+   passwd root
+   ```
+8. Exit back to the recovery menu and choose **resume** (or reboot).
+9. Log out/in over SSH as your admin user (group membership needs a fresh
+   session), then confirm with:
+   ```bash
+   sudo -v
+   ```
+
+Once `sudo -v` works, continue to Step 2.
+
+---
+
+## 2. Laptop: generate a dedicated keypair
+
+On the laptop (native Windows OpenSSH — `ssh-keygen`/`sftp` are bundled with
+Windows 10/11; no WSL or third-party client needed):
+
+```powershell
+ssh-keygen -t ed25519 -f $HOME\.ssh\market-mind-backupsync -C "market-mind-backup-sync"
+```
+
+Empty passphrase is reasonable here since the key can only read the backups
+folder from this one machine's Tailscale IP — the blast radius of the key
+file alone leaking is low. Use a passphrase + `ssh-agent` instead if you'd
+rather not have an unencrypted private key on disk at all.
+
+The private key **never leaves the laptop**. Copy the `.pub` file's contents
+into the homelab setup script's `LAPTOP_PUBKEY` variable (step 3 below).
+
+---
+
+## 3. Homelab: jailed, read-only, sftp-only account
 
 Requirements: Linux homelab with OpenSSH server (tested on Ubuntu 24.04 /
 OpenSSH 9.6), root/sudo access, `mount --bind` support.
@@ -50,7 +116,7 @@ Run as root/sudo (idempotent — safe to re-run):
 #!/bin/bash
 set -euo pipefail
 
-BACKUPS_SRC="/home/jlleongarcia/Documents/Github_projects/market-mind/backups"
+BACKUPS_SRC="<absolute path to your market-mind/backups directory>"
 JAIL_ROOT="/srv/backup-mirror"
 JAIL_MOUNT="$JAIL_ROOT/market-mind-backups"
 LAPTOP_TS_IP="<laptop's Tailscale IP, e.g. 100.x.x.x — see `tailscale status`>"
@@ -106,29 +172,10 @@ sftp> cd /                  # should fail to escape — chrooted
 
 ---
 
-## 2. Laptop: generate a dedicated keypair
-
-On the laptop (native Windows OpenSSH — `ssh-keygen`/`sftp` are bundled with
-Windows 10/11; no WSL or third-party client needed):
-
-```powershell
-ssh-keygen -t ed25519 -f $HOME\.ssh\market-mind-backupsync -C "market-mind-backup-sync"
-```
-
-Empty passphrase is reasonable here since the key can only read the backups
-folder from this one machine's Tailscale IP — the blast radius of the key
-file alone leaking is low. Use a passphrase + `ssh-agent` instead if you'd
-rather not have an unencrypted private key on disk at all.
-
-The private key **never leaves the laptop**. Copy the `.pub` file's contents
-into the homelab setup script's `LAPTOP_PUBKEY` variable (step 1 above).
-
----
-
-## 3. Laptop: sync script
+## 4. Laptop: sync script
 
 Save as `Sync-MarketMindBackup.ps1` (adjust `$RemoteHost` to the homelab's
-Tailscale IP or MagicDNS name, e.g. `jlleongarcia.<tailnet>.ts.net`):
+Tailscale IP or MagicDNS name, e.g. `myhomelab.<tailnet>.ts.net`):
 
 ```powershell
 $RemoteHost   = "backupsync@<homelab-tailscale-ip-or-magicdns-name>"
@@ -140,7 +187,7 @@ $RetentionDays = 30
 New-Item -ItemType Directory -Force -Path $DestDir | Out-Null
 
 $batch = "$env:TEMP\mm_sftp_batch.txt"
-"cd /`nmget *`nbye" | Set-Content -Path $batch -Encoding ascii
+"mget *`nbye" | Set-Content -Path $batch -Encoding ascii
 
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 try {
@@ -167,7 +214,7 @@ client builds.
 
 ---
 
-## 4. Laptop: schedule it
+## 5. Laptop: schedule it
 
 Windows Task Scheduler, one task, two triggers:
 
