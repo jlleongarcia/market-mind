@@ -269,16 +269,7 @@ class UserRegistrationRequest(models.Model):
 
     def _get_login_url(self):
         from django.conf import settings
-        import re
-        allowed_hosts = getattr(settings, 'ALLOWED_HOSTS', [])
-        domain = 'localhost:8000'
-        for host in allowed_hosts:
-            if host not in ['*', 'localhost', '127.0.0.1', '0.0.0.0']:
-                if re.search(r'[a-zA-Z]', host):
-                    domain = host
-                    break
-        protocol = "https" if domain != 'localhost:8000' else "http"
-        return f"{protocol}://{domain}{settings.LOGIN_URL}"
+        return f"{settings.SITE_URL.rstrip('/')}{settings.LOGIN_URL}"
 
     def _send_approval_email(self):
         try:

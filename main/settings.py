@@ -260,6 +260,9 @@ EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@marketmind.app')
 ADMIN_EMAIL = config('ADMIN_EMAIL', default='admin@marketmind.app')
 
+# Public site URL, used to build absolute links in emails sent outside a request context
+SITE_URL = config('SITE_URL', default='http://localhost:8000')
+
 # Authentication URLs
 LOGIN_URL = '/accounts/login/'
 LOGOUT_URL = '/accounts/logout/'
