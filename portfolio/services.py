@@ -579,6 +579,7 @@ class PortfolioCalculationService:
             'gain_loss': gain_loss,
             'gain_loss_percentage': gain_loss_pct,
             'buy_yield': position.average_buy_yield,
+            'best_buy_yield': position.best_buy_yield,
             'current_yield': None,
             'yield_on_cost': position.yield_on_cost,
             'annual_dividend_income': position.annual_dividend_income,

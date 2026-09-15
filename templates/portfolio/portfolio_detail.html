@@ -124,16 +124,16 @@
         </div>
         </div>
 
-        <!-- INCOME TAB: Symbol · Company · Shares · Yield% · YoC% · Payout% · FCF Payout% · Div Cash · Div Growth 1Y · Div Growth 5Y · Chowder# -->
+        <!-- INCOME TAB: Symbol · Shares · Yield% · YoC% · Best Buy Yield% · Payout% · FCF Payout% · Div Cash · Div Growth 1Y · Div Growth 5Y · Chowder# -->
         <div class="tab-panel" id="tab-income">
         <div class="table-wrap">
         <table class="data-table sortable">
             <thead><tr>
                 <th>Symbol</th>
-                <th>Company</th>
                 <th class="text-right">Shares</th>
                 <th class="text-right">Yield%</th>
                 <th class="text-right">YoC%</th>
+                <th class="text-right">Best Buy Yield%</th>
                 <th class="text-right">Payout%</th>
                 <th class="text-right">FCF Payout%</th>
                 <th class="text-right">Div Cash</th>
@@ -145,15 +145,17 @@
             {% for pos in summary.positions %}
             <tr onclick="window.location.href='{% url "portfolio:position_detail_view" portfolio.id pos.symbol %}'">
                 <td>
-                    <span class="font-bold">{{ pos.symbol }}</span>
+                    <span class="font-bold" title="{{ pos.company_name }}">{{ pos.symbol }}</span>
                 </td>
-                <td class="text-muted text-sm">{{ pos.company_name }}</td>
                 <td class="text-right">{{ pos.quantity|floatformat:4 }}</td>
                 <td class="text-right">
                     {% if pos.current_yield %}{{ pos.current_yield|floatformat:2 }}%{% else %}<span class="text-muted">—</span>{% endif %}
                 </td>
                 <td class="text-right font-bold">
                     {% if pos.yield_on_cost %}{{ pos.yield_on_cost|floatformat:2 }}%{% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
+                <td class="text-right">
+                    {% if pos.best_buy_yield %}{{ pos.best_buy_yield|floatformat:2 }}%{% else %}<span class="text-muted">—</span>{% endif %}
                 </td>
                 <td class="text-right">
                     {% if pos.payout_ratio %}{{ pos.payout_ratio|floatformat:1 }}%{% else %}<span class="text-muted">—</span>{% endif %}

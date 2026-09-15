@@ -117,10 +117,10 @@
         <table class="data-table">
             <thead><tr>
                 <th>Symbol</th>
-                <th>Company</th>
                 <th class="text-right">Shares</th>
                 <th class="text-right">Yield%</th>
                 <th class="text-right">YoC%</th>
+                <th class="text-right">Best Buy Yield%</th>
                 <th class="text-right">Annual Passive Income</th>
                 <th class="text-right">Div Growth 1Y</th>
                 <th class="text-right">Chowder #</th>
@@ -128,14 +128,16 @@
             <tbody>
             {% for pos in summary.positions %}
             <tr>
-                <td><span class="font-bold">{{ pos.symbol }}</span></td>
-                <td class="text-muted text-sm">{{ pos.company_name }}</td>
+                <td><span class="font-bold" title="{{ pos.company_name }}">{{ pos.symbol }}</span></td>
                 <td class="text-right">{{ pos.quantity|floatformat:4 }}</td>
                 <td class="text-right">
                     {% if pos.current_yield %}{{ pos.current_yield|floatformat:2 }}%{% else %}<span class="text-muted">—</span>{% endif %}
                 </td>
                 <td class="text-right font-bold">
                     {% if pos.yield_on_cost %}{{ pos.yield_on_cost|floatformat:2 }}%{% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
+                <td class="text-right">
+                    {% if pos.best_buy_yield %}{{ pos.best_buy_yield|floatformat:2 }}%{% else %}<span class="text-muted">—</span>{% endif %}
                 </td>
                 <td class="text-right">
                     {% if pos.annual_dividend_income %}${{ pos.annual_dividend_income|floatformat:2 }}{% else %}<span class="text-muted">—</span>{% endif %}

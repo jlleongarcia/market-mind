@@ -40,15 +40,16 @@ class PositionSerializer(serializers.ModelSerializer):
     gain_loss = serializers.DecimalField(source='profit_loss', max_digits=15, decimal_places=2, read_only=True)
     gain_loss_percentage = serializers.DecimalField(source='profit_loss_percentage', max_digits=10, decimal_places=2, read_only=True)
     buy_yield = serializers.DecimalField(source='average_buy_yield', max_digits=5, decimal_places=2, read_only=True)
+    best_buy_yield = serializers.FloatField(read_only=True)
     yield_on_cost = serializers.DecimalField(max_digits=5, decimal_places=2, read_only=True)
     annual_dividend_income = serializers.DecimalField(max_digits=15, decimal_places=2, read_only=True)
-    
+
     class Meta:
         model = Position
         fields = [
-            'id', 'portfolio', 'symbol', 'company_name', 'quantity', 
+            'id', 'portfolio', 'symbol', 'company_name', 'quantity',
             'average_cost', 'current_price', 'total_cost', 'current_value',
-            'gain_loss', 'gain_loss_percentage', 'buy_yield', 'yield_on_cost',
+            'gain_loss', 'gain_loss_percentage', 'buy_yield', 'best_buy_yield', 'yield_on_cost',
             'annual_dividend_income', 'last_updated'
         ]
         read_only_fields = ['id', 'last_updated']
@@ -75,6 +76,7 @@ class PositionDetailSerializer(serializers.Serializer):
     gain_loss = serializers.FloatField()
     gain_loss_percentage = serializers.FloatField()
     buy_yield = serializers.FloatField(allow_null=True)
+    best_buy_yield = serializers.FloatField(allow_null=True, required=False)
     current_yield = serializers.FloatField(allow_null=True)
     yield_on_cost = serializers.FloatField(allow_null=True)
     annual_dividend_income = serializers.FloatField(allow_null=True)
