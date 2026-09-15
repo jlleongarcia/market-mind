@@ -306,7 +306,17 @@ class Position(models.Model):
         if total_investment > 0:
             return round(total_weighted_yield / total_investment, 2)
         return None
-    
+
+    @property
+    def best_buy_yield(self):
+        """Highest buy yield achieved across this position's buy transactions"""
+        best = self.portfolio.transactions.filter(
+            symbol=self.symbol,
+            transaction_type='BUY',
+            buy_yield__isnull=False
+        ).order_by('-buy_yield').values_list('buy_yield', flat=True).first()
+        return float(best) if best is not None else None
+
     @property
     def yield_on_cost(self):
         """Yield on Cost: (annual dividend income / total acquisition cost) * 100"""
