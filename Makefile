@@ -204,6 +204,18 @@ setup-cron-dividends:
 		echo "✅ Dividend backfill cron job registered (daily at 8:30 AM)"; \
 	fi
 
+# Register daily 9:00am cron job for financial metrics refresh (Payout%, FCF, Payout FCF, etc.) (idempotent)
+setup-cron-financial-metrics:
+	@SCRIPT="$$(pwd)/scripts/update_financial_metrics.sh"; \
+	LOG="$$(pwd)/backups/financial_metrics.log"; \
+	ENTRY="0 9 * * * $$SCRIPT >> $$LOG 2>&1"; \
+	if crontab -l 2>/dev/null | grep -qF "$$SCRIPT"; then \
+		echo "✅ Financial metrics cron job already registered"; \
+	else \
+		(crontab -l 2>/dev/null; echo "# Market Mind - daily financial metrics refresh (9:00 AM)"; echo "$$ENTRY") | crontab -; \
+		echo "✅ Financial metrics cron job registered (daily at 9:00 AM)"; \
+	fi
+
 # Backup database
 backup:
 	@echo "💾 Creating database backup..."

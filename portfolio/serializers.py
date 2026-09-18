@@ -84,6 +84,8 @@ class PositionDetailSerializer(serializers.Serializer):
     trailing_pe = serializers.FloatField(allow_null=True, required=False)
     forward_pe = serializers.FloatField(allow_null=True, required=False)
     payout_ratio = serializers.FloatField(allow_null=True, required=False)
+    fcf = serializers.FloatField(allow_null=True, required=False)
+    fcf_payout_ratio = serializers.FloatField(allow_null=True, required=False)
     dividend_growth_1y = serializers.FloatField(allow_null=True, required=False)
     dividend_growth_5y = serializers.FloatField(allow_null=True, required=False)
     chowder_number = serializers.FloatField(allow_null=True, required=False)

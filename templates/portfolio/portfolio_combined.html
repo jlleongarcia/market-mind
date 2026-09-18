@@ -121,6 +121,7 @@
                 <th class="text-right">Yield%</th>
                 <th class="text-right">YoC%</th>
                 <th class="text-right">Best Buy Yield%</th>
+                <th class="text-right">Payout FCF</th>
                 <th class="text-right">Annual Passive Income</th>
                 <th class="text-right">Div Growth 1Y</th>
                 <th class="text-right">Chowder #</th>
@@ -138,6 +139,9 @@
                 </td>
                 <td class="text-right">
                     {% if pos.best_buy_yield %}{{ pos.best_buy_yield|floatformat:2 }}%{% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
+                <td class="text-right">
+                    {% if pos.fcf_payout_ratio %}{{ pos.fcf_payout_ratio|floatformat:1 }}%{% else %}<span class="text-muted">—</span>{% endif %}
                 </td>
                 <td class="text-right">
                     {% if pos.annual_dividend_income %}${{ pos.annual_dividend_income|floatformat:2 }}{% else %}<span class="text-muted">—</span>{% endif %}
@@ -166,6 +170,7 @@
                 <th>Company</th>
                 <th class="text-right">P/E</th>
                 <th class="text-right">Payout%</th>
+                <th class="text-right">FCF ($B)</th>
                 <th class="text-right">Div Growth 5Y</th>
                 <th class="text-right">Beta</th>
                 <th class="text-right">52W High</th>
@@ -181,6 +186,9 @@
                 </td>
                 <td class="text-right">
                     {% if pos.payout_ratio %}{{ pos.payout_ratio|floatformat:1 }}%{% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
+                <td class="text-right">
+                    {% if pos.fcf %}${{ pos.fcf|floatformat:2 }}B{% else %}<span class="text-muted">—</span>{% endif %}
                 </td>
                 <td class="text-right">
                     {% if pos.dividend_growth_5y %}
