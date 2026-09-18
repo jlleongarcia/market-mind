@@ -270,15 +270,16 @@ Repeat step 1 to generate a new token, then update the secret value in step 2. N
 
 ## Scheduled Jobs
 
-Two idempotent daily cron jobs, registered via `make setup-cron` /
-`make setup-cron-dividends`:
+Three idempotent daily cron jobs, registered via `make setup-cron` /
+`make setup-cron-dividends` / `make setup-cron-financial-metrics`:
 
 | Time | Script | Purpose |
 |---|---|---|
 | 8:00 AM | `scripts/backup_db.sh` | Encrypted daily DB backup (see `BACKUP_OFFSITE.md` for the off-site copy) |
 | 8:30 AM | `scripts/backfill_dividend_data.sh` | Backfills dividend `declaration_date` from FMP/Alpha Vantage and recomputes Buy Yield — see `DIVIDEND_AUTOMATION.md` |
+| 9:00 AM | `scripts/update_financial_metrics.sh` | Refreshes `FinancialMetrics` for all active stocks (Payout%, FCF, Payout FCF, P/E, beta, 52-week range inputs, etc.) via `manage.py update_financial_metrics --all` |
 
-Both are safe to rerun manually and log to `backups/*.log`.
+All three are safe to rerun manually and log to `backups/*.log`.
 
 ---
 
