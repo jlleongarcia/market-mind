@@ -124,7 +124,7 @@
         </div>
         </div>
 
-        <!-- INCOME TAB: Symbol · Shares · Yield% · YoC% · Best Buy Yield% · Payout% · FCF Payout% · Div Cash · Div Growth 1Y · Div Growth 5Y · Chowder# -->
+        <!-- INCOME TAB: Symbol · Shares · Yield% · YoC% · Best Buy Yield% · Payout% · Div Cash · Div Growth 1Y · Div Growth 5Y · Chowder# -->
         <div class="tab-panel" id="tab-income">
         <div class="table-wrap">
         <table class="data-table sortable">
@@ -135,7 +135,6 @@
                 <th class="text-right">YoC%</th>
                 <th class="text-right">Best Buy Yield%</th>
                 <th class="text-right">Payout%</th>
-                <th class="text-right">FCF Payout%</th>
                 <th class="text-right">Div Cash</th>
                 <th class="text-right">Div Growth 1Y</th>
                 <th class="text-right">Div Growth 5Y</th>
@@ -161,9 +160,6 @@
                     {% if pos.payout_ratio %}{{ pos.payout_ratio|floatformat:1 }}%{% else %}<span class="text-muted">—</span>{% endif %}
                 </td>
                 <td class="text-right">
-                    {% if pos.fcf_payout_ratio %}{{ pos.fcf_payout_ratio|floatformat:1 }}%{% else %}<span class="text-muted">—</span>{% endif %}
-                </td>
-                <td class="text-right">
                     {% if pos.annual_dividend_income %}${{ pos.annual_dividend_income|floatformat:2 }}{% else %}<span class="text-muted">—</span>{% endif %}
                 </td>
                 <td class="text-right">
@@ -186,7 +182,7 @@
         </div>
         </div>
 
-        <!-- FUNDAMENTALS TAB: Symbol · Company · P/E · Fwd P/E · Beta · 52W High · 52W Low · vs 52W High · 52W Range% -->
+        <!-- FUNDAMENTALS TAB: Symbol · Company · P/E · Fwd P/E · FCF ($M) · FCF Payout% · Beta · 52W High · 52W Low · vs 52W High · 52W Range% -->
         <div class="tab-panel" id="tab-fundamentals">
         <div class="table-wrap">
         <table class="data-table sortable">
@@ -195,6 +191,8 @@
                 <th>Company</th>
                 <th class="text-right">P/E</th>
                 <th class="text-right">Fwd P/E</th>
+                <th class="text-right">FCF ($M)</th>
+                <th class="text-right">FCF Payout%</th>
                 <th class="text-right">Beta</th>
                 <th class="text-right">52W High</th>
                 <th class="text-right">52W Low</th>
@@ -213,6 +211,12 @@
                 </td>
                 <td class="text-right">
                     {% if pos.forward_pe %}{{ pos.forward_pe|floatformat:1 }}{% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
+                <td class="text-right">
+                    {% if pos.fcf %}${{ pos.fcf|floatformat:1 }}M{% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
+                <td class="text-right">
+                    {% if pos.fcf_payout_ratio %}{{ pos.fcf_payout_ratio|floatformat:1 }}%{% else %}<span class="text-muted">—</span>{% endif %}
                 </td>
                 <td class="text-right">
                     {% if pos.beta %}{{ pos.beta|floatformat:2 }}{% else %}<span class="text-muted">—</span>{% endif %}

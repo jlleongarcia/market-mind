@@ -121,6 +121,8 @@ class FinancialMetrics(models.Model):
     trailing_pe = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     forward_pe = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     payout_ratio = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    fcf = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True,
+        help_text="Trailing twelve months Free Cash Flow, in the stock's native currency")
     fcf_payout_ratio = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     dividend_rate = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True,
         help_text="Annual dividend per share in the stock's native currency (e.g. 3.32 for MSFT)")

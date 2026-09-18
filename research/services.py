@@ -915,6 +915,7 @@ class StockDataFetcher:
             
             # FCF Payout Ratio - calculate from FCF and dividend data
             fcf = info.get('freeCashflow')
+            metrics['fcf'] = fcf
             metrics['fcf_payout_ratio'] = None
             
             if fcf and fcf > 0:

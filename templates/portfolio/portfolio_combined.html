@@ -166,6 +166,8 @@
                 <th>Company</th>
                 <th class="text-right">P/E</th>
                 <th class="text-right">Payout%</th>
+                <th class="text-right">FCF ($M)</th>
+                <th class="text-right">FCF Payout%</th>
                 <th class="text-right">Div Growth 5Y</th>
                 <th class="text-right">Beta</th>
                 <th class="text-right">52W High</th>
@@ -181,6 +183,12 @@
                 </td>
                 <td class="text-right">
                     {% if pos.payout_ratio %}{{ pos.payout_ratio|floatformat:1 }}%{% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
+                <td class="text-right">
+                    {% if pos.fcf %}${{ pos.fcf|floatformat:1 }}M{% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
+                <td class="text-right">
+                    {% if pos.fcf_payout_ratio %}{{ pos.fcf_payout_ratio|floatformat:1 }}%{% else %}<span class="text-muted">—</span>{% endif %}
                 </td>
                 <td class="text-right">
                     {% if pos.dividend_growth_5y %}
