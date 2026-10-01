@@ -524,6 +524,65 @@ class StockDataFetcher:
                 factor *= split.split_from / split.split_to
         return factor
 
+    def _split_is_reflected_in_dividend_data(self, split, dividends) -> bool:
+        """
+        Whether `dividends` already reflects `split` (FMP/Alpha Vantage return
+        dividend history pre-adjusted for later splits) rather than recording
+        the raw per-share amount actually paid at the time (the yfinance
+        fallback path does this) — see _effective_split_adjustment_factor,
+        which exists because the two disagree and treating one as the other
+        corrupts any comparison spanning the split: WMT's 2024 3-for-1 split
+        shows $0.57 -> $0.2075 (raw, needs adjusting), while MKC's 2020
+        2-for-1 split shows $0.31 -> $0.34 (already adjusted — it's just
+        continuing its normal raise cadence; adjusting it again would halve
+        the "before" side a second time).
+
+        Compares the nearest dividend on each side of the split date against
+        the two hypotheses in log space: raw (ratio ~ 1/factor, since the
+        share count changed but the per-share payout didn't) vs
+        already-adjusted (ratio ~ 1, since the series would already be in
+        consistent terms). Defaults to True — already reflected, no
+        adjustment — whenever there isn't enough nearby data to tell;
+        wrongly adjusting a series that's already correct is just as wrong
+        as the bug this is guarding against.
+        """
+        if not split.split_to or split.split_from == split.split_to:
+            return True
+        before = [d for d in dividends if d.date < split.date]
+        after = [d for d in dividends if d.date >= split.date]
+        if not before or not after:
+            return True
+        amt_before = float(max(before, key=lambda d: d.date).amount)
+        amt_after = float(min(after, key=lambda d: d.date).amount)
+        if amt_before <= 0 or amt_after <= 0:
+            return True
+        ratio = amt_after / amt_before
+        factor = split.split_from / split.split_to
+        dist_raw = abs(math.log(ratio) - math.log(1 / factor))
+        dist_adjusted = abs(math.log(ratio))
+        return dist_adjusted <= dist_raw
+
+    def _effective_split_adjustment_factor(self, stock: Stock, from_date, to_date, splits=None, dividends=None) -> float:
+        """
+        Like _split_adjustment_factor, but skips any split already reflected
+        in the dividend data itself (see _split_is_reflected_in_dividend_data)
+        instead of assuming every split needs correcting for.
+
+        `dividends` may be a preloaded list of this stock's Dividend rows,
+        same rationale as the `splits` param.
+        """
+        if splits is None:
+            splits = StockSplit.objects.filter(stock=stock, date__gt=from_date, date__lte=to_date)
+        else:
+            splits = [s for s in splits if from_date < s.date <= to_date]
+        if dividends is None:
+            dividends = list(Dividend.objects.filter(stock=stock))
+        factor = 1.0
+        for split in splits:
+            if split.split_to and not self._split_is_reflected_in_dividend_data(split, dividends):
+                factor *= split.split_from / split.split_to
+        return factor
+
     # How far back a prior dividend can be and still count as a "recent" baseline
     # for the plausibility check below. Without this bound, a single stale/sparse
     # row (e.g. one lone decades-old dividend left over from an earlier partial
@@ -885,6 +944,42 @@ class StockDataFetcher:
             # otherwise have "1Y"/"5Y" windows that actually span several
             # years' worth of payments.
             freq = infer_dividend_frequency(stock)
+
+            # Split-adjust every historical amount to today's share terms so a
+            # split between an old payment and now doesn't read as a dividend
+            # cut (or hike) purely from the share count changing — e.g. WMT's
+            # Feb 2024 3-for-1 split made its post-split $0.2075/qtr look like
+            # a ~64% cut from the pre-split $0.57/qtr when compared head-on.
+            # Uses the source-aware variant since our dividend sources disagree
+            # on whether history is already split-adjusted (see
+            # _split_is_reflected_in_dividend_data) — MKC's data already
+            # reflects its 2020 split, and blindly adjusting it again would
+            # introduce the same kind of distortion this is meant to fix.
+            splits = list(StockSplit.objects.filter(stock=stock))
+            dividends_list = list(dividends)
+            now_date = now.date()
+            df['amount'] = [
+                float(amount) / (self._effective_split_adjustment_factor(
+                    stock, idx.date(), now_date, splits=splits, dividends=dividends_list
+                ) or 1.0)
+                for idx, amount in df['amount'].items()
+            ]
+
+            # Exclude special/extra dividends from the growth windows — a
+            # one-off payment far above the stock's typical cadence (e.g.
+            # T. Rowe Price's $3.00 special in 2021 next to ~$1.08 regular
+            # quarterlies) would otherwise displace a real recurring payment
+            # from the positional last-`freq` window below and inflate
+            # whichever side of the comparison it lands on, reading as a
+            # false cut. Only an upper threshold is applied — a genuine cut
+            # should still count in full.
+            window = min(len(df), 2 * freq + 1)
+            rolling_median = df['amount'].rolling(window=window, center=True, min_periods=1).median()
+            df = df[df['amount'] <= 1.8 * rolling_median]
+
+            if len(df) < 2:
+                logger.info(f"Insufficient regular dividend data for {symbol}")
+                return result
 
             # 1Y growth: last `freq` dividends / penultimate `freq` dividends − 1
             # Using positional slicing avoids time-window edge cases where an
