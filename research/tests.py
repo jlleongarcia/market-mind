@@ -215,3 +215,48 @@ class SaveDividendsYfinanceFallbackTests(TestCase):
         # 1 (resolve stock) + 2 (preload known dividends/splits) + up to 4/row
         # from get_or_create's own existence-check + savepoint/insert/release.
         self.assertLessEqual(len(ctx.captured_queries), 3 + created * 4)
+
+
+class FetchFinancialMetricsDividendRateFallbackTests(TestCase):
+    """
+    yfinance leaves `dividendRate` blank for some dividend payers (observed
+    live for SCHD) even though it reports a `dividendYield` — which otherwise
+    silently blanks out everything downstream that needs a per-share rate
+    (Position.yield_on_cost, Position.annual_dividend_income). fetch_financial_metrics
+    must fall back to our own payment history in that case.
+    """
+
+    def setUp(self):
+        self.fetcher = StockDataFetcher()
+        self.stock = Stock.objects.create(symbol='ETFX', name='Example ETF', currency='USD', is_etf=True)
+        quarterly_amounts = [Decimal('0.25'), Decimal('0.26'), Decimal('0.27'), Decimal('0.28')]
+        for i, amount in enumerate(quarterly_amounts):
+            Dividend.objects.create(stock=self.stock, date=date(2025, 3, 1) + timedelta(days=90 * i), amount=amount)
+
+    def _mock_info(self, **overrides):
+        info = {'dividendRate': None, 'dividendYield': 3.0, 'regularMarketPrice': 36.0}
+        info.update(overrides)
+        return info
+
+    def test_falls_back_to_payment_history_when_dividend_rate_missing(self):
+        with patch('research.services.yf.Ticker') as mock_ticker:
+            mock_ticker.return_value.info = self._mock_info()
+            metrics = self.fetcher.fetch_financial_metrics('ETFX')
+
+        self.assertEqual(metrics['dividend_rate'], Decimal('1.06'))  # 0.25+0.26+0.27+0.28
+        self.assertTrue(metrics['pays_dividend'])
+
+    def test_does_not_override_a_dividend_rate_yfinance_already_provides(self):
+        with patch('research.services.yf.Ticker') as mock_ticker:
+            mock_ticker.return_value.info = self._mock_info(dividendRate=2.5)
+            metrics = self.fetcher.fetch_financial_metrics('ETFX')
+
+        self.assertEqual(metrics['dividend_rate'], Decimal('2.5'))
+
+    def test_leaves_dividend_rate_none_when_no_payment_history_exists(self):
+        self.stock.dividends.all().delete()
+        with patch('research.services.yf.Ticker') as mock_ticker:
+            mock_ticker.return_value.info = self._mock_info()
+            metrics = self.fetcher.fetch_financial_metrics('ETFX')
+
+        self.assertIsNone(metrics['dividend_rate'])
