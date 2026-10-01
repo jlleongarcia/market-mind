@@ -924,32 +924,57 @@ class StockDataFetcher:
         
         return result
     
+    def _derive_dividend_rate_from_history(self, stock: Stock) -> Optional[float]:
+        """
+        Fallback annual dividend rate for when yfinance's own `dividendRate`
+        is missing — common for ETFs, whose fund-level distributions don't
+        fit Yahoo's per-share "declared rate" model and come back blank even
+        though `dividendYield` is populated (observed live for SCHD). Likely
+        affects other categories yfinance doesn't treat as ordinary
+        dividend-paying equity too (newly-listed tickers, non-US issuers).
+
+        Sums the most recent `frequency` confirmed payments from our own
+        dividend history — the same annualisation
+        PortfolioCalculationService.fetch_and_store_buy_yield already uses
+        for ETF buy_yield — so it stays consistent with the yield figure
+        shown elsewhere in the app.
+        """
+        frequency = infer_dividend_frequency(stock)
+        amounts = list(
+            Dividend.objects.filter(stock=stock)
+            .order_by('-date')
+            .values_list('amount', flat=True)[:frequency]
+        )
+        if not amounts:
+            return None
+        return float(sum(amounts))
+
     def fetch_financial_metrics(self, symbol: str) -> Optional[Dict]:
         """
         Fetch financial metrics from yfinance
-        
+
         Args:
             symbol: Stock ticker symbol
-            
+
         Returns:
             Dictionary with financial metrics or None if failed
         """
         try:
             ticker = yf.Ticker(symbol.upper())
             info = ticker.info
-            
+
             if not info:
                 logger.warning(f"No info available for {symbol}")
                 return None
-            
+
             # Extract metrics with smart conversion to percentages
             metrics = {}
-            
+
             # P/E ratios and beta - already in correct format
             metrics['trailing_pe'] = info.get('trailingPE')
             metrics['forward_pe'] = info.get('forwardPE')
             metrics['beta'] = info.get('beta')
-            
+
             # Payout ratio - yfinance returns as decimal (0.6672 = 66.72%)
             payout = info.get('payoutRatio')
             if payout is not None:
@@ -957,29 +982,34 @@ class StockDataFetcher:
                 metrics['payout_ratio'] = payout * 100 if 0 < payout <= 1 else payout
             else:
                 metrics['payout_ratio'] = None
-            
+
+            # Annual dividend per share. yfinance doesn't always populate this
+            # (see _derive_dividend_rate_from_history) even when it reports a
+            # dividendYield, so fall back to our own payment history.
+            div_rate = info.get('dividendRate')
+            if not div_rate:
+                stock = Stock.objects.filter(symbol=symbol.upper()).first()
+                if stock:
+                    div_rate = self._derive_dividend_rate_from_history(stock)
+            metrics['dividend_rate'] = div_rate if div_rate else None
+
             # FCF Payout Ratio - calculate from FCF and dividend data
             fcf = info.get('freeCashflow')
             metrics['fcf'] = fcf
             metrics['fcf_payout_ratio'] = None
-            
+
             if fcf and fcf > 0:
                 try:
-                    # Get dividend per share and shares outstanding to calculate total dividends
-                    dividend_rate = info.get('dividendRate')  # Annual dividend per share
+                    # Get shares outstanding to calculate total dividends
                     shares_outstanding = info.get('sharesOutstanding')
-                    
-                    if dividend_rate and shares_outstanding:
-                        total_dividends = dividend_rate * shares_outstanding
+
+                    if div_rate and shares_outstanding:
+                        total_dividends = div_rate * shares_outstanding
                         fcf_payout = (total_dividends / fcf) * 100
                         metrics['fcf_payout_ratio'] = min(fcf_payout, 999.99)  # Cap at 999.99%
                         logger.info(f"FCF Payout Ratio for {symbol}: {metrics['fcf_payout_ratio']:.2f}%")
                 except Exception as e:
                     logger.warning(f"Could not calculate FCF payout ratio for {symbol}: {str(e)}")
-            
-            # Annual dividend per share — direct dollar amount, no unit ambiguity
-            div_rate = info.get('dividendRate')
-            metrics['dividend_rate'] = div_rate if div_rate else None
 
             # Correct yield derived from dividend_rate / price (avoids yfinance % format ambiguity)
             current_price = info.get('currentPrice') or info.get('regularMarketPrice')
@@ -1004,9 +1034,9 @@ class StockDataFetcher:
                         metrics[key] = Decimal(str(round(value, 2)))
                     except:
                         metrics[key] = None
-            
+
             # Check if stock pays dividends
-            pays_dividend = bool(info.get('dividendYield') or info.get('dividendRate'))
+            pays_dividend = bool(info.get('dividendYield') or info.get('dividendRate') or div_rate)
             metrics['pays_dividend'] = pays_dividend
             
             logger.info(f"Fetched financial metrics for {symbol} - Pays dividend: {pays_dividend}")
