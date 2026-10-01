@@ -74,6 +74,72 @@ class PreloadedDividendChecksTests(TestCase):
         self.assertIsNone(db_result)
         self.assertIsNone(preloaded_result)
 
+    def test_stale_old_dividend_is_not_used_as_recent_baseline(self):
+        """
+        A single dividend far older than _RECENT_DIVIDEND_LOOKBACK_DAYS must
+        not be picked up as the "nearest earlier" comparator — otherwise it
+        permanently locks out every later entry, since a rejected row is
+        never saved and so keeps being the nearest comparator forever (seen
+        live: NEE stuck at 2 rows since a $0.0172 1973 entry poisoned every
+        later comparison). A stock-sized, unconfirmed amount should pass when
+        the only "earlier" row on record is years out of range.
+        """
+        stock = Stock.objects.create(symbol='OLDCO', name='Old Co', currency='USD')
+        Dividend.objects.create(stock=stock, date=date(1973, 2, 21), amount=Decimal('0.0172'))
+
+        ex_date = date(1983, 8, 22)
+        self.assertTrue(self.fetcher._is_plausible_dividend_amount(stock, ex_date, '0.05625', False))
+
+        known_dividends = list(Dividend.objects.filter(stock=stock))
+        self.assertTrue(
+            self.fetcher._is_plausible_dividend_amount(
+                stock, ex_date, '0.05625', False, recent_dividends=known_dividends, splits=[]
+            )
+        )
+
+    def test_dividend_within_lookback_still_enforces_plausibility(self):
+        """The recency bound only widens what counts as "no data" — it must not
+        weaken the check for a genuinely recent, implausible amount."""
+        stock = Stock.objects.create(symbol='NEWCO', name='New Co', currency='USD')
+        Dividend.objects.create(stock=stock, date=date(2024, 1, 1), amount=Decimal('0.50'))
+
+        ex_date = date(2024, 4, 1)
+        self.assertFalse(self.fetcher._is_plausible_dividend_amount(stock, ex_date, '25.00', False))
+
+
+class FetchDividendsPrimaryFmpGateTests(TestCase):
+    """
+    FMP premium-gates a handful of individual US tickers outright (confirmed
+    live for NEE: HTTP 402 even though the exchange is covered in general).
+    _fetch_dividends_primary must retry Alpha Vantage in that case instead of
+    dropping straight to the much lower-confidence yfinance fallback.
+    """
+
+    def setUp(self):
+        self.fetcher = StockDataFetcher()
+        self.stock = Stock.objects.create(symbol='NEE', name='NextEra Energy', currency='USD', exchange='NYQ')
+
+    def test_fmp_failure_retries_alpha_vantage(self):
+        av_data = [{'ex_dividend_date': '2026-08-28', 'declaration_date': '2026-07-30', 'amount': '0.6232'}]
+        with patch.object(self.fetcher, '_fetch_dividends_fmp', return_value=None) as mock_fmp, \
+             patch.object(self.fetcher, '_fetch_dividends_alphavantage', return_value=av_data) as mock_av:
+            data, source = self.fetcher._fetch_dividends_primary(self.stock)
+
+        mock_fmp.assert_called_once_with('NEE')
+        mock_av.assert_called_once_with('NEE')
+        self.assertEqual(data, av_data)
+        self.assertEqual(source, 'Alpha Vantage (FMP fallback)')
+
+    def test_fmp_success_does_not_call_alpha_vantage(self):
+        fmp_data = [{'ex_dividend_date': '2026-08-28', 'declaration_date': '2026-07-30', 'amount': '0.6232'}]
+        with patch.object(self.fetcher, '_fetch_dividends_fmp', return_value=fmp_data), \
+             patch.object(self.fetcher, '_fetch_dividends_alphavantage') as mock_av:
+            data, source = self.fetcher._fetch_dividends_primary(self.stock)
+
+        mock_av.assert_not_called()
+        self.assertEqual(data, fmp_data)
+        self.assertEqual(source, 'FMP')
+
 
 class SaveDividendsYfinanceFallbackTests(TestCase):
     """
@@ -88,7 +154,7 @@ class SaveDividendsYfinanceFallbackTests(TestCase):
         self.stock = Stock.objects.create(
             symbol='ACME', name='Acme Corp', currency='USD', exchange='LSE'  # non-US -> Alpha Vantage primary
         )
-        patcher = patch.object(StockDataFetcher, '_fetch_dividends_primary', return_value=None)
+        patcher = patch.object(StockDataFetcher, '_fetch_dividends_primary', return_value=(None, 'Alpha Vantage'))
         self.addCleanup(patcher.stop)
         patcher.start()
         payment_patcher = patch.object(StockDataFetcher, '_fetch_payment_date_map_yfinance', return_value={})

@@ -437,17 +437,35 @@ class StockDataFetcher:
         FMP's free tier doesn't cover non-US exchanges at all."""
         return 'FMP' if stock.exchange in self.US_EXCHANGES else 'Alpha Vantage'
 
-    def _fetch_dividends_primary(self, stock: Stock) -> Optional[List[Dict]]:
+    def _fetch_dividends_primary(self, stock: Stock) -> Tuple[Optional[List[Dict]], str]:
         """
         Route to whichever free-tier source actually covers this stock's
         exchange, in a single request either way: FMP for US-listed (deeper
         declaration_date history and a much roomier daily quota), Alpha
         Vantage for everything else (FMP's free tier blocks non-US symbols
         outright, "Premium Query Parameter").
+
+        FMP also premium-gates a handful of individual US tickers outright
+        regardless of exchange (confirmed live via HTTP 402 "Special Endpoint"
+        for NEE, and separately for CAT/HON/MO/WDS — see
+        backfill_dividend_declaration_dates). When that happens we retry once
+        against Alpha Vantage rather than dropping straight to the yfinance
+        fallback, since AV still gives us the same declaration_date/
+        payment_date confirmation FMP would have — without it, unconfirmed
+        yfinance rows have to survive the plausibility heuristic in
+        _is_plausible_dividend_amount, which is far more likely to leave a
+        stock's history sparse or empty than an actual confirmed-date source.
+
+        Returns (data, source_name) — source_name reflects whichever source
+        was actually used (or last attempted, if data is None), for logging.
         """
         if self.dividend_source_name(stock) == 'FMP':
-            return self._fetch_dividends_fmp(stock.symbol)
-        return self._fetch_dividends_alphavantage(stock.symbol)
+            data = self._fetch_dividends_fmp(stock.symbol)
+            if data:
+                return data, 'FMP'
+            logger.info(f"FMP unavailable for {stock.symbol}, trying Alpha Vantage before yfinance")
+            return self._fetch_dividends_alphavantage(stock.symbol), 'Alpha Vantage (FMP fallback)'
+        return self._fetch_dividends_alphavantage(stock.symbol), 'Alpha Vantage'
 
     def _fetch_payment_date_map_yfinance(self, symbol: str) -> dict:
         """
@@ -506,6 +524,18 @@ class StockDataFetcher:
                 factor *= split.split_from / split.split_to
         return factor
 
+    # How far back a prior dividend can be and still count as a "recent" baseline
+    # for the plausibility check below. Without this bound, a single stale/sparse
+    # row (e.g. one lone decades-old dividend left over from an earlier partial
+    # import) gets picked up as the "nearest earlier" comparator for every
+    # subsequent unconfirmed entry, rejects it for being nowhere close in size,
+    # and — since a rejected row is never saved — keeps being the nearest
+    # comparator forever, permanently locking the stock out of real history
+    # (seen live: NEE stuck at 2 rows since a $0.0172 1973 entry poisoned every
+    # later comparison). Two years comfortably covers every payment cadence we
+    # infer (monthly/quarterly/semi-annual/annual) with room to spare.
+    _RECENT_DIVIDEND_LOOKBACK_DAYS = 730
+
     def _is_plausible_dividend_amount(
         self, stock: Stock, ex_date, amount, has_confirming_date: bool, recent_dividends=None, splits=None
     ) -> bool:
@@ -522,16 +552,28 @@ class StockDataFetcher:
         or drop when it's actually the same real payout (seen live: MO's
         $21.91 pre-split entry next to $0.69/$0.75 post-split ones).
 
+        Only dividends within `_RECENT_DIVIDEND_LOOKBACK_DAYS` of ex_date count
+        as a baseline — see that constant's comment for why an older one isn't
+        trustworthy as "recent". No qualifying baseline is treated the same as
+        no history at all: insufficient data to judge, not implausible.
+
         `recent_dividends`/`splits` may be preloaded lists of this stock's
         Dividend/StockSplit rows — see save_dividends, which passes them in
         to avoid a DB round trip per call.
         """
         if has_confirming_date:
             return True
+        cutoff = ex_date - timedelta(days=self._RECENT_DIVIDEND_LOOKBACK_DAYS)
         if recent_dividends is None:
-            recent = list(Dividend.objects.filter(stock=stock, date__lt=ex_date).order_by('-date')[:4])
+            recent = list(
+                Dividend.objects.filter(stock=stock, date__lt=ex_date, date__gte=cutoff)
+                .order_by('-date')[:4]
+            )
         else:
-            recent = sorted((d for d in recent_dividends if d.date < ex_date), key=lambda d: d.date, reverse=True)[:4]
+            recent = sorted(
+                (d for d in recent_dividends if cutoff <= d.date < ex_date),
+                key=lambda d: d.date, reverse=True,
+            )[:4]
         if not recent:
             return True
         adjusted = [
@@ -572,8 +614,11 @@ class StockDataFetcher:
 
         Primary source: FMP for US-listed stocks, Alpha Vantage for everything
         else (see dividend_source_name) — both return full history, including
-        declaration_date/payment_date, in a single request. Falls back to
-        yfinance when the primary source is unavailable or rate-limited.
+        declaration_date/payment_date, in a single request. If FMP
+        premium-gates the specific symbol, retries once against Alpha Vantage
+        before giving up on a confirmed-date source (see
+        _fetch_dividends_primary). Falls back to yfinance only once both of
+        those are unavailable or rate-limited.
 
         Incoming rows are sanity-checked before being persisted: an amount far
         outside the stock's recent range with no declaration_date/payment_date
@@ -604,9 +649,9 @@ class StockDataFetcher:
             known_dividends[:] = [d for d in known_dividends if d.date != dividend_obj.date]
             known_dividends.append(dividend_obj)
 
-        # --- Primary source (FMP or Alpha Vantage, by exchange) ---
-        source = self.dividend_source_name(stock)
-        primary_data = self._fetch_dividends_primary(stock)
+        # --- Primary source (FMP or Alpha Vantage, by exchange — plus an
+        # Alpha Vantage retry if FMP premium-gates this particular symbol) ---
+        primary_data, source = self._fetch_dividends_primary(stock)
         if primary_data:
             created_count = 0
             for entry in primary_data:
