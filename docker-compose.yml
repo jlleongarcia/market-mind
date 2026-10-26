@@ -3,6 +3,7 @@ version: '3.8'
 services:
   db:
     image: postgres:15
+    restart: always
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
@@ -19,6 +20,7 @@ services:
 
   web:
     image: ghcr.io/jlleongarcia/market-mind:latest
+    restart: always
     command: gunicorn main.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 300
     volumes:
       - static_volume:/app/staticfiles
