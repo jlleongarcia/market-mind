@@ -216,6 +216,18 @@ setup-cron-financial-metrics:
 		echo "✅ Financial metrics cron job registered (daily at 9:00 AM)"; \
 	fi
 
+# Register daily 9:30am cron job for wishlist/portfolio alerts — after the 9:00 metrics refresh (idempotent)
+setup-cron-alerts:
+	@SCRIPT="$$(pwd)/scripts/run_alerts.sh"; \
+	LOG="$$(pwd)/backups/alerts.log"; \
+	ENTRY="30 9 * * * $$SCRIPT >> $$LOG 2>&1"; \
+	if crontab -l 2>/dev/null | grep -qF "$$SCRIPT"; then \
+		echo "✅ Alerts cron job already registered"; \
+	else \
+		(crontab -l 2>/dev/null; echo "# Market Mind - daily wishlist/portfolio alerts (9:30 AM)"; echo "$$ENTRY") | crontab -; \
+		echo "✅ Alerts cron job registered (daily at 9:30 AM)"; \
+	fi
+
 # Backup database
 backup:
 	@echo "💾 Creating database backup..."

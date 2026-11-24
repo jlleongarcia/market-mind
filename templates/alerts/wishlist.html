@@ -1,0 +1,114 @@
+{% extends 'base.html' %}
+
+{% block title %}Wishlist — Market Mind{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-header-inner">
+        <div>
+            <h1 class="page-title">Wishlist</h1>
+            <p class="page-subtitle">
+                Companies you're watching. Alert rules with a wishlist scope check these every
+                morning, using the previous market close.
+            </p>
+        </div>
+        <div style="display:flex;gap:10px;">
+            <a href="{% url 'alerts:rules_view' %}" class="btn btn-secondary">Alert rules</a>
+        </div>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:20px;">
+    <div class="card-header"><span class="card-title">Add a company</span></div>
+    <div class="card-body">
+        <form method="post" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="add">
+            <input type="text" name="symbol" class="form-control" placeholder="Symbol, e.g. KO"
+                   style="max-width:160px;text-transform:uppercase;" required>
+            <input type="text" name="note" class="form-control" style="flex:1;min-width:220px;"
+                   placeholder="Why you want it (optional) — quoted back in its alerts">
+            <button type="submit" class="btn btn-primary">Add</button>
+        </form>
+        <p class="form-hint" style="margin-top:8px;">
+            New symbols are fetched right away (a few seconds), including 5 years of price history.
+        </p>
+    </div>
+</div>
+
+{% if rows %}
+<div class="card">
+    <div class="table-wrap">
+    <table class="data-table">
+        <thead><tr>
+            <th>Symbol</th>
+            <th class="text-right">Price</th>
+            <th class="text-right" title="0 = at the 52-week low, 100 = at the 52-week high">52w pct</th>
+            <th class="text-right">Yield</th>
+            <th class="text-right">5y avg yield</th>
+            <th class="text-right">vs avg</th>
+            <th class="text-right">P/E</th>
+            <th class="text-right">Payout</th>
+            <th class="text-right">Chowder</th>
+            <th>Note</th>
+            <th></th>
+        </tr></thead>
+        <tbody>
+        {% for row in rows %}
+        {% with s=row.snap item=row.item %}
+        <tr>
+            <td>
+                <strong>{{ item.symbol }}</strong>
+                {% if s.owned %}<span class="badge badge-accent" style="margin-left:4px;">owned</span>{% endif %}
+                <div style="font-size:0.75rem;color:var(--text-muted);">{{ s.name|truncatechars:28 }}</div>
+                {% if s.missing_reason %}<div style="font-size:0.72rem;color:var(--warning);">{{ s.missing_reason }}</div>{% endif %}
+            </td>
+            <td class="text-right">{% if s.price is not None %}{{ s.price|floatformat:2 }} <span style="color:var(--text-muted);font-size:0.75rem;">{{ s.currency }}</span>{% else %}—{% endif %}</td>
+            <td class="text-right">
+                {% if s.week52_percentile is not None %}
+                <span class="badge {% if s.week52_percentile <= 33 %}badge-success{% elif s.week52_percentile >= 67 %}badge-danger{% else %}badge-neutral{% endif %}">{{ s.week52_percentile|floatformat:0 }}</span>
+                {% else %}—{% endif %}
+            </td>
+            <td class="text-right">{% if s.yield is not None %}{{ s.yield|floatformat:2 }}%{% else %}—{% endif %}</td>
+            <td class="text-right">{% if s.avg_yield_5y is not None %}{{ s.avg_yield_5y|floatformat:2 }}%{% else %}—{% endif %}</td>
+            <td class="text-right">
+                {% if s.yield_vs_5y_avg is not None %}
+                <span style="color:{% if s.yield_vs_5y_avg > 0 %}var(--positive){% else %}var(--text-secondary){% endif %};font-weight:600;">{% if s.yield_vs_5y_avg > 0 %}+{% endif %}{{ s.yield_vs_5y_avg|floatformat:1 }}%</span>
+                {% else %}—{% endif %}
+            </td>
+            <td class="text-right">{% if s.pe is not None %}{{ s.pe|floatformat:1 }}{% else %}—{% endif %}</td>
+            <td class="text-right">{% if s.payout_ratio is not None %}{{ s.payout_ratio|floatformat:0 }}%{% else %}—{% endif %}</td>
+            <td class="text-right">{% if s.chowder is not None %}{{ s.chowder|floatformat:1 }}{% else %}—{% endif %}</td>
+            <td style="max-width:260px;">
+                <form method="post" style="display:flex;gap:6px;margin:0;">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="note">
+                    <input type="hidden" name="item_id" value="{{ item.id }}">
+                    <input type="text" name="note" class="form-control" value="{{ item.note }}"
+                           style="padding:4px 8px;font-size:0.8rem;" placeholder="Add a note">
+                    <button type="submit" class="btn btn-secondary btn-sm">Save</button>
+                </form>
+            </td>
+            <td>
+                <form method="post" onsubmit="return confirm('Remove {{ item.symbol }} from your wishlist?');" style="margin:0;">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="delete">
+                    <input type="hidden" name="item_id" value="{{ item.id }}">
+                    <button type="submit" class="btn btn-danger btn-sm">Remove</button>
+                </form>
+            </td>
+        </tr>
+        {% endwith %}
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% else %}
+<div class="empty-state">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+    <h3>Your wishlist is empty</h3>
+    <p>Add companies you'd like to buy, then set up alert rules to be told when they hit your entry conditions.</p>
+</div>
+{% endif %}
+{% endblock %}

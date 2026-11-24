@@ -16,6 +16,7 @@ MarketMind is a self-hosted Django application for tracking stock portfolios, mo
 - **Dividend automation** — Sync dividend history from FMP (US-listed) or Alpha Vantage (everything else), falling back to yfinance; qualifying payments are auto-recorded against the right positions, including ones since fully sold. FMP/Alpha Vantage also provide declaration/payment-date history, powering accurate dividend growth and Buy Yield calculations — see [DIVIDEND_AUTOMATION.md](DIVIDEND_AUTOMATION.md).
 - **Tax reporting** — Per-portfolio P&L reports with FIFO cost-basis matching. Separate stock and FX gain/loss streams as required by most tax authorities.
 - **Dividend withholding tax** — Per-user rules estimate origin-country withholding on dividends (and record it on interest), with MLP/REIT-aware entity classification and a live preview when entering transactions — see [TAX_WITHHOLDING.md](TAX_WITHHOLDING.md).
+- **Wishlist & alerts** — Watch companies you don't own yet and define your own buy triggers (yield vs its 5-year average, 52-week range percentile, P/E, payout, Chowder, price vs your average cost…), plus built-in warnings for holdings (dividend cut/freeze, payout above 100%). Checked every morning; one digest per day by email and/or Telegram — see [ALERTS.md](ALERTS.md).
 - **Multi-currency FX book** — Real (EXC) and virtual (SELL / DIV / INT) FX lots tracked with FIFO consumption; gains and losses reported in the portfolio's native currency.
 - **FX rate integration** — Currency rates fetched automatically from a self-hosted Frankfurter v2 instance, with weekend/holiday fallback and manual-entry override.
 - **Research tools** — Historical price data, fundamental metrics, and company information for any listed symbol.
@@ -64,6 +65,7 @@ market-mind/
 │   ├── services.py    # FXRateService, FXLotService, TaxReportService
 │   └── views.py       # Template views and REST endpoints
 ├── research/          # Stock search, price cache, market data
+├── alerts/            # Wishlist, alert rules, daily digest (email + Telegram)
 ├── templates/         # Django HTML templates
 ├── static/            # CSS and JavaScript
 ├── docker-compose.yml
@@ -79,6 +81,7 @@ market-mind/
 |---|---|
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Local setup, commands, workflow, and code conventions |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Production deployment and Cloudflare configuration |
+| [ALERTS.md](ALERTS.md) | Wishlist, alert rules, warnings, Telegram setup |
 
 ---
 

@@ -1141,14 +1141,91 @@ class StockDataFetcher:
             logger.error(f"Error fetching financial metrics for {symbol}: {str(e)}")
             return None
     
+    @staticmethod
+    def summarize_price_history(hist: pd.DataFrame, frequency: int, is_etf: bool) -> Dict:
+        """
+        Reduce a yfinance daily history (auto_adjust=False, so Close is
+        split-adjusted but not dividend-adjusted, and Dividends is
+        split-adjusted on the same basis) to the price/yield figures the
+        alerts app needs.
+
+        avg_yield_5y uses the same annualisation as Transaction.buy_yield so
+        the two are directly comparable: for each trading day, the latest
+        regular dividend gone ex on or before that day × `frequency` (ETFs:
+        sum of the last `frequency` distributions), divided by that day's
+        close. Special dividends are dropped with the same 1.8× rolling-median
+        rule calculate_dividend_growth uses. The mean is only reported when
+        there are at least 3 years of daily yields to average — a "5y average"
+        built on a few months would be meaningless.
+
+        Returns only the keys it could compute, so callers can leave existing
+        DB values in place for the rest.
+        """
+        result = {}
+        if hist is None or hist.empty or 'Close' not in hist:
+            return result
+
+        hist = hist[hist['Close'] > 0].copy()
+        if hist.empty:
+            return result
+        idx = pd.DatetimeIndex(hist.index)
+        hist.index = idx.tz_localize(None) if idx.tz is not None else idx
+
+        last_date = hist.index[-1]
+        result['current_price'] = float(hist['Close'].iloc[-1])
+        result['price_date'] = last_date.date()
+
+        year = hist[hist.index > last_date - pd.Timedelta(days=365)]
+        low_col = 'Low' if 'Low' in year else 'Close'
+        high_col = 'High' if 'High' in year else 'Close'
+        result['week52_low'] = float(year[low_col].min())
+        result['week52_high'] = float(year[high_col].max())
+
+        if 'Dividends' not in hist:
+            return result
+        divs = hist['Dividends'][hist['Dividends'] > 0]
+        if divs.empty:
+            return result
+
+        if not is_etf:
+            window = min(len(divs), 2 * frequency + 1)
+            median = divs.rolling(window=window, center=True, min_periods=1).median()
+            divs = divs[divs <= 1.8 * median]
+            annual = divs * frequency
+        else:
+            annual = divs.rolling(window=frequency, min_periods=frequency).sum()
+
+        # Forward-fill each day's applicable annualised dividend; days before
+        # the first usable dividend stay NaN and are excluded from the mean.
+        annual_daily = annual.reindex(hist.index, method='ffill')
+        daily_yield = (annual_daily / hist['Close'] * 100).dropna()
+        daily_yield = daily_yield[daily_yield.index > last_date - pd.Timedelta(days=5 * 365)]
+
+        if len(daily_yield) and daily_yield.index[-1] - daily_yield.index[0] >= pd.Timedelta(days=3 * 365):
+            result['avg_yield_5y'] = float(daily_yield.mean())
+        return result
+
+    def fetch_price_history_summary(self, stock: Stock) -> Dict:
+        """Pull ~6y of daily history (one extra year so the 5y window starts with a known dividend)."""
+        try:
+            hist = yf.Ticker(stock.symbol).history(period='6y', auto_adjust=False)
+        except Exception as e:
+            logger.warning(f"Price history fetch failed for {stock.symbol}: {e}")
+            return {}
+        return self.summarize_price_history(hist, infer_dividend_frequency(stock), stock.is_etf)
+
     @transaction.atomic
-    def save_financial_metrics(self, symbol: str) -> bool:
+    def save_financial_metrics(self, symbol: str, include_history: bool = True) -> bool:
         """
         Fetch and save financial metrics to database
-        
+
         Args:
             symbol: Stock ticker symbol
-            
+            include_history: also refresh the price-history-derived fields
+                (current_price, 52-week range, avg_yield_5y). Costs one extra
+                yfinance call, so latency-sensitive callers (sync-dividends)
+                skip it and keep whatever the daily cron last stored.
+
         Returns:
             True if successful, False otherwise
         """
@@ -1189,7 +1266,19 @@ class StockDataFetcher:
                 metrics['chowder_number'] = None
             
             metrics['pays_dividend'] = pays_dividend
-            
+            metrics['current_yield'] = (
+                Decimal(str(round(min(yield_pct, 9999.99), 2))) if yield_pct else None
+            )
+
+            if include_history:
+                for key, value in self.fetch_price_history_summary(stock).items():
+                    if key == 'price_date':
+                        metrics[key] = value
+                    elif key == 'avg_yield_5y':
+                        metrics[key] = Decimal(str(round(min(value, 9999.99), 2)))
+                    else:
+                        metrics[key] = Decimal(str(round(value, 4)))
+
             # Save to database
             financial_metrics, created = FinancialMetrics.objects.update_or_create(
                 stock=stock,

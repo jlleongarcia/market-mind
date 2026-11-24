@@ -1,0 +1,204 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if rule %}Edit rule{% else %}New rule{% endif %} — Market Mind{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="breadcrumb">
+        <a href="{% url 'alerts:rules_view' %}">Alert Rules</a>
+        <span class="breadcrumb-sep">/</span>
+        <span>{% if rule %}{{ rule.name }}{% else %}New rule{% endif %}</span>
+    </div>
+    <h1 class="page-title">{% if rule %}Edit rule{% else %}New rule{% endif %}</h1>
+</div>
+
+<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;max-width:1200px;" class="account-grid">
+
+    <div class="card">
+        <div class="card-header"><span class="card-title">Rule</span></div>
+        <div class="card-body">
+            <form method="post" id="ruleForm">
+                {% csrf_token %}
+
+                <div class="form-group">
+                    <label class="form-label" for="name">Name</label>
+                    <input type="text" id="name" name="name" class="form-control" value="{{ fields.name }}"
+                           placeholder="e.g. Cheap and yielding" maxlength="100" required>
+                </div>
+
+                <div class="form-grid-2">
+                    <div class="form-group">
+                        <label class="form-label" for="scope">Applies to</label>
+                        <select id="scope" name="scope" class="form-select">
+                            {% for value, label in scopes %}
+                            <option value="{{ value }}" {% if fields.scope == value %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group" id="symbolGroup">
+                        <label class="form-label" for="symbol">Symbol</label>
+                        <input type="text" id="symbol" name="symbol" class="form-control" value="{{ fields.symbol }}"
+                               placeholder="e.g. KO" style="text-transform:uppercase;">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Conditions</label>
+                    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;font-size:0.875rem;">
+                        Fire when
+                        <select name="match" class="form-select" style="width:auto;">
+                            {% for value, label in matches %}
+                            <option value="{{ value }}" {% if fields.match == value %}selected{% endif %}>{{ label|lower }}</option>
+                            {% endfor %}
+                        </select>
+                        hold:
+                    </div>
+                    <div id="conditions" style="display:flex;flex-direction:column;gap:8px;">
+                        {% for c in conditions %}
+                        <div class="condition-row" style="display:flex;gap:6px;">
+                            <select name="metric" class="form-select" style="flex:2;">
+                                {% for key, label, unit in metrics %}
+                                <option value="{{ key }}" {% if c.metric == key %}selected{% endif %}>{{ label }}{% if unit %} ({{ unit }}){% endif %}</option>
+                                {% endfor %}
+                            </select>
+                            <select name="operator" class="form-select" style="flex:0 0 70px;">
+                                {% for key, symbol in operators %}
+                                <option value="{{ key }}" {% if c.operator == key %}selected{% endif %}>{{ symbol }}</option>
+                                {% endfor %}
+                            </select>
+                            <input type="number" step="any" name="value" class="form-control" value="{{ c.value }}" style="flex:1;" required>
+                            <button type="button" class="btn btn-secondary btn-sm remove-condition" title="Remove">✕</button>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <button type="button" id="addCondition" class="btn btn-secondary btn-sm" style="margin-top:10px;">+ Add condition</button>
+                    <p class="form-hint" style="margin-top:10px;">
+                        <strong>Yield vs its 5y average</strong>: 0 means "any amount above average", 10 means at least 10% above it.
+                        <strong>52-week range percentile</strong>: 0 = at the 52-week low, 100 = at the high.
+                        <strong>Price vs my average cost</strong> only applies to companies you own.
+                        Missing data never counts as a match.
+                    </p>
+                </div>
+
+                <div class="form-grid-2">
+                    <div class="form-group">
+                        <label class="form-label" for="cooldown_days">Cooldown (days)</label>
+                        <input type="number" id="cooldown_days" name="cooldown_days" class="form-control" min="0"
+                               value="{{ fields.cooldown_days }}">
+                        <p class="form-hint">Don't re-fire for the same company within this many days, even if the conditions flicker off and on.</p>
+                    </div>
+                    <div class="form-group" style="display:flex;align-items:center;">
+                        <div class="form-check">
+                            <input type="checkbox" id="is_active" name="is_active" class="form-check-input" {% if fields.is_active %}checked{% endif %}>
+                            <label class="form-check-label" for="is_active">Active</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display:flex;gap:8px;">
+                    <button type="submit" class="btn btn-primary" style="flex:1;">Save rule</button>
+                    <button type="button" id="testBtn" class="btn btn-secondary">Test now</button>
+                    <a href="{% url 'alerts:rules_view' %}" class="btn btn-secondary">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><span class="card-title">Today's matches</span></div>
+        <div class="card-body" id="previewBody">
+            <p style="color:var(--text-muted);">Press <strong>Test now</strong> to see which companies match these conditions today. Testing doesn't send anything.</p>
+        </div>
+    </div>
+</div>
+
+<template id="conditionTemplate">
+    <div class="condition-row" style="display:flex;gap:6px;">
+        <select name="metric" class="form-select" style="flex:2;">
+            {% for key, label, unit in metrics %}
+            <option value="{{ key }}">{{ label }}{% if unit %} ({{ unit }}){% endif %}</option>
+            {% endfor %}
+        </select>
+        <select name="operator" class="form-select" style="flex:0 0 70px;">
+            {% for key, symbol in operators %}
+            <option value="{{ key }}">{{ symbol }}</option>
+            {% endfor %}
+        </select>
+        <input type="number" step="any" name="value" class="form-control" style="flex:1;" required>
+        <button type="button" class="btn btn-secondary btn-sm remove-condition" title="Remove">✕</button>
+    </div>
+</template>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const form = document.getElementById('ruleForm');
+    const conditions = document.getElementById('conditions');
+    const scope = document.getElementById('scope');
+    const symbolGroup = document.getElementById('symbolGroup');
+    const previewBody = document.getElementById('previewBody');
+
+    function syncScope() {
+        symbolGroup.style.visibility = scope.value === 'SYMBOL' ? 'visible' : 'hidden';
+    }
+    scope.addEventListener('change', syncScope);
+    syncScope();
+
+    document.getElementById('addCondition').addEventListener('click', function () {
+        conditions.appendChild(document.getElementById('conditionTemplate').content.cloneNode(true));
+    });
+    conditions.addEventListener('click', function (e) {
+        if (!e.target.classList.contains('remove-condition')) return;
+        if (conditions.querySelectorAll('.condition-row').length > 1) {
+            e.target.closest('.condition-row').remove();
+        }
+    });
+
+    function esc(s) {
+        const d = document.createElement('div');
+        d.textContent = s == null ? '' : String(s);
+        return d.innerHTML;
+    }
+
+    function badge(result) {
+        if (result === true)  return '<span class="badge badge-success">match</span>';
+        if (result === false) return '<span class="badge badge-neutral">no</span>';
+        return '<span class="badge badge-warning">missing data</span>';
+    }
+
+    document.getElementById('testBtn').addEventListener('click', async function () {
+        previewBody.innerHTML = '<p style="color:var(--text-muted);">Evaluating…</p>';
+        try {
+            const resp = await fetch('{% url "alerts:rule_preview_api" %}', { method: 'POST', body: new FormData(form) });
+            const data = await resp.json();
+            if (data.errors) {
+                previewBody.innerHTML = data.errors.map(e => `<div class="alert alert-danger">${esc(e)}</div>`).join('');
+                return;
+            }
+            if (!data.rows.length) {
+                previewBody.innerHTML = '<p style="color:var(--text-muted);">No companies in this scope yet — add some to your wishlist or portfolio.</p>';
+                return;
+            }
+            const matches = data.rows.filter(r => r.result === true).length;
+            const headers = data.rows[0].values.map(v => `<th class="text-right">${esc(v.label)}</th>`).join('');
+            const body = data.rows.map(r => `
+                <tr>
+                    <td><strong>${esc(r.symbol)}</strong>${r.owned ? ' <span class="badge badge-accent">owned</span>' : ''}
+                        ${r.missing_reason ? `<div style="font-size:0.72rem;color:var(--warning);">${esc(r.missing_reason)}</div>` : ''}</td>
+                    ${r.values.map(v => `<td class="text-right" style="color:${v.passes === true ? 'var(--positive)' : v.passes === false ? 'var(--text-secondary)' : 'var(--warning)'};font-weight:${v.passes ? 600 : 400};">${esc(v.value)}</td>`).join('')}
+                    <td>${badge(r.result)}</td>
+                </tr>`).join('');
+            previewBody.innerHTML = `
+                <p style="margin-bottom:10px;"><strong>${matches}</strong> of ${data.rows.length} compan${data.rows.length === 1 ? 'y' : 'ies'} match today.</p>
+                <div class="table-wrap"><table class="data-table">
+                    <thead><tr><th>Symbol</th>${headers}<th></th></tr></thead>
+                    <tbody>${body}</tbody>
+                </table></div>`;
+        } catch (err) {
+            previewBody.innerHTML = `<div class="alert alert-danger">Test failed: ${esc(err)}</div>`;
+        }
+    });
+})();
+</script>
+{% endblock %}

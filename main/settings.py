@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     # Local apps
     'research',
     'portfolio',
+    'alerts',
 ]
 
 MIDDLEWARE = [
@@ -259,6 +260,10 @@ EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@marketmind.app')
 ADMIN_EMAIL = config('ADMIN_EMAIL', default='admin@marketmind.app')
+
+# Telegram bot for alert digests (optional) — create one with @BotFather
+TELEGRAM_BOT_TOKEN = config('TELEGRAM_BOT_TOKEN', default='')
+TELEGRAM_BOT_USERNAME = config('TELEGRAM_BOT_USERNAME', default='')
 
 # Public site URL, used to build absolute links in emails sent outside a request context
 SITE_URL = config('SITE_URL', default='http://localhost:8000')

@@ -32,6 +32,9 @@ urlpatterns = [
     # Portfolio management
     path('portfolio/', include('portfolio.urls')),
 
+    # Wishlist + alerts
+    path('alerts/', include('alerts.urls')),
+
     # JWT
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),

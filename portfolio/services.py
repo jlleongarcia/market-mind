@@ -1100,7 +1100,7 @@ class PortfolioCalculationService:
             from django.db import close_old_connections
             try:
                 fetcher.save_dividends(symbol)
-                fetcher.save_financial_metrics(symbol)   # also updates dividend_rate
+                fetcher.save_financial_metrics(symbol, include_history=False)   # also updates dividend_rate
                 return symbol
             finally:
                 # These threads aren't request threads, so Django never closes

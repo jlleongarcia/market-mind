@@ -133,6 +133,18 @@ class FinancialMetrics(models.Model):
     beta = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True)
     pays_dividend = models.BooleanField(default=False)
 
+    # Derived from a ~6y daily price history pull (see StockDataFetcher.summarize_price_history)
+    # — refreshed by the daily metrics cron, read by the alerts app.
+    current_price = models.DecimalField(max_digits=15, decimal_places=4, null=True, blank=True,
+        help_text="Last daily close, in the stock's native currency")
+    price_date = models.DateField(null=True, blank=True, help_text="Date of current_price")
+    week52_low = models.DecimalField(max_digits=15, decimal_places=4, null=True, blank=True)
+    week52_high = models.DecimalField(max_digits=15, decimal_places=4, null=True, blank=True)
+    current_yield = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True,
+        help_text="dividend_rate / price × 100 — same basis as Transaction.buy_yield")
+    avg_yield_5y = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True,
+        help_text="Mean daily yield over the trailing 5 years, same annualisation as buy_yield")
+
     last_updated = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -162,6 +174,24 @@ class FinancialMetrics(models.Model):
     @property
     def has_cash_flow_data(self):
         return self.fcf_payout_ratio is not None
+
+    @property
+    def week52_percentile(self):
+        """Where current_price sits in its 52-week range: 0 = at the low, 100 = at the high."""
+        if None in (self.current_price, self.week52_low, self.week52_high):
+            return None
+        span = self.week52_high - self.week52_low
+        if span <= 0:
+            return None
+        pct = (self.current_price - self.week52_low) / span * 100
+        return round(float(min(max(pct, 0), 100)), 1)
+
+    @property
+    def yield_vs_5y_avg(self):
+        """Current yield relative to its 5y average, in % (e.g. +12.5 = yield is 12.5% above average)."""
+        if not self.current_yield or not self.avg_yield_5y:
+            return None
+        return round((float(self.current_yield) / float(self.avg_yield_5y) - 1) * 100, 1)
 
 
 class UserRegistrationRequest(models.Model):

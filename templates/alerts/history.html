@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+
+{% block title %}Alert History — Market Mind{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-header-inner">
+        <div>
+            <h1 class="page-title">Alert History</h1>
+            <p class="page-subtitle">Every alert that fired, with the values at that moment.</p>
+        </div>
+        <form method="get" style="margin:0;">
+            <select name="kind" class="form-select" onchange="this.form.submit()">
+                <option value="">All alerts</option>
+                {% for value, label in kinds %}
+                <option value="{{ value }}" {% if current_kind == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </form>
+    </div>
+</div>
+
+{% if events %}
+<div class="activity-feed" style="max-width:960px;">
+    {% for event in events %}
+    <div class="card" style="margin-bottom:12px;">
+        <div class="card-body" style="padding:16px 20px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;">
+                <div>
+                    <strong>{{ event.symbol }}</strong>
+                    <span class="badge {% if event.kind == 'RULE' %}badge-success{% elif event.kind == 'EX_DIVIDEND' %}badge-neutral{% else %}badge-danger{% endif %}" style="margin-left:6px;">
+                        {% if event.kind == 'RULE' %}{{ event.rule_name|default:"Rule" }}{% else %}{{ event.get_kind_display }}{% endif %}
+                    </span>
+                </div>
+                <div style="font-size:0.8rem;color:var(--text-muted);white-space:nowrap;">
+                    {{ event.created_at|date:"M d, Y H:i" }}
+                    {% if event.emailed %} · ✉{% endif %}{% if event.telegrammed %} · Telegram{% endif %}
+                </div>
+            </div>
+            <div style="white-space:pre-line;font-size:0.875rem;color:var(--text-secondary);">{{ event.message }}</div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+    <h3>No alerts yet</h3>
+    <p>Alerts are checked every morning. Set up <a href="{% url 'alerts:rules_view' %}">alert rules</a> to get started.</p>
+</div>
+{% endif %}
+{% endblock %}

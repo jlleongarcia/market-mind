@@ -1,0 +1,138 @@
+{% extends 'base.html' %}
+
+{% block title %}Notification Settings — Market Mind{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="breadcrumb">
+        <a href="{% url 'research:account_panel' %}">Account</a>
+        <span class="breadcrumb-sep">/</span>
+        <span>Notification Settings</span>
+    </div>
+    <h1 class="page-title">Notification Settings</h1>
+    <p class="page-subtitle">
+        Where your daily alert digest goes, and which built-in warnings to get for companies you own.
+        Alerts are checked once each morning, using the previous market close.
+    </p>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:960px;" class="account-grid">
+
+    <div class="card">
+        <div class="card-header"><span class="card-title">Channels &amp; warnings</span></div>
+        <div class="card-body">
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="save">
+
+                <div class="form-group">
+                    <div class="form-check">
+                        <input type="checkbox" id="email_enabled" name="email_enabled" class="form-check-input" {% if prefs.email_enabled %}checked{% endif %}>
+                        <label class="form-check-label" for="email_enabled">Email digest</label>
+                    </div>
+                    <p class="form-hint">Sent to {{ user.email|default:"— no email on your account" }}</p>
+                </div>
+
+                <div class="form-group">
+                    <div class="form-check">
+                        <input type="checkbox" id="telegram_enabled" name="telegram_enabled" class="form-check-input"
+                               {% if prefs.telegram_enabled %}checked{% endif %} {% if not prefs.telegram_chat_id %}disabled{% endif %}>
+                        <label class="form-check-label" for="telegram_enabled">Telegram digest</label>
+                    </div>
+                    {% if not prefs.telegram_chat_id %}<p class="form-hint">Connect Telegram on the right first.</p>{% endif %}
+                </div>
+
+                <hr style="border:none;border-top:1px solid var(--border);margin:18px 0;">
+                <p style="font-weight:600;font-size:0.875rem;margin-bottom:10px;">Warnings for companies you own</p>
+
+                <div class="form-group">
+                    <div class="form-check">
+                        <input type="checkbox" id="warn_dividend_cut" name="warn_dividend_cut" class="form-check-input" {% if prefs.warn_dividend_cut %}checked{% endif %}>
+                        <label class="form-check-label" for="warn_dividend_cut">Dividend cut</label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="form-check">
+                        <input type="checkbox" id="warn_dividend_freeze" name="warn_dividend_freeze" class="form-check-input" {% if prefs.warn_dividend_freeze %}checked{% endif %}>
+                        <label class="form-check-label" for="warn_dividend_freeze">Dividend freeze</label>
+                    </div>
+                    <p class="form-hint">Same payment a full year plus one in a row: 5× for quarterly payers, 13× monthly, 3× semi-annual, 2× annual. Not checked for ETFs.</p>
+                </div>
+                <div class="form-group">
+                    <div class="form-check">
+                        <input type="checkbox" id="warn_payout" name="warn_payout" class="form-check-input" {% if prefs.warn_payout %}checked{% endif %}>
+                        <label class="form-check-label" for="warn_payout">Payout or FCF payout above 100%</label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="form-check">
+                        <input type="checkbox" id="warn_ex_dividend" name="warn_ex_dividend" class="form-check-input" {% if prefs.warn_ex_dividend %}checked{% endif %}>
+                        <label class="form-check-label" for="warn_ex_dividend">Ex-dividend date within</label>
+                        <input type="number" name="ex_dividend_days" class="form-control" min="1" max="60"
+                               value="{{ prefs.ex_dividend_days }}" style="width:70px;padding:4px 8px;margin:0 6px;">
+                        days
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary" style="width:100%;">Save settings</button>
+            </form>
+        </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:20px;">
+        <div class="card">
+            <div class="card-header"><span class="card-title">Telegram</span></div>
+            <div class="card-body" style="font-size:0.875rem;">
+                {% if not telegram_configured %}
+                <p style="color:var(--text-muted);">
+                    Telegram isn't set up on this server yet. The administrator needs to create a bot
+                    with @BotFather and set <code>TELEGRAM_BOT_TOKEN</code> and <code>TELEGRAM_BOT_USERNAME</code>.
+                </p>
+                {% elif prefs.telegram_chat_id %}
+                <p style="margin-bottom:12px;"><span class="badge badge-success">connected</span></p>
+                <div style="display:flex;gap:8px;">
+                    <form method="post" style="margin:0;">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="test_telegram">
+                        <button type="submit" class="btn btn-secondary">Send test</button>
+                    </form>
+                    <form method="post" style="margin:0;" onsubmit="return confirm('Disconnect Telegram?');">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="telegram_disconnect">
+                        <button type="submit" class="btn btn-danger">Disconnect</button>
+                    </form>
+                </div>
+                {% elif telegram_link %}
+                <ol style="padding-left:18px;margin:0 0 14px;line-height:1.7;">
+                    <li><a href="{{ telegram_link }}" target="_blank" rel="noopener">Open the bot in Telegram</a> and press <strong>Start</strong>.</li>
+                    <li>Come back here and press <strong>Verify</strong>.</li>
+                </ol>
+                <form method="post" style="margin:0;">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="telegram_verify">
+                    <button type="submit" class="btn btn-primary">Verify</button>
+                </form>
+                {% else %}
+                <p style="color:var(--text-muted);margin-bottom:12px;">Get your daily digest as a Telegram message.</p>
+                <form method="post" style="margin:0;">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="telegram_link">
+                    <button type="submit" class="btn btn-primary">Connect Telegram</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header"><span class="card-title">Email</span></div>
+            <div class="card-body">
+                <form method="post" style="margin:0;">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="test_email">
+                    <button type="submit" class="btn btn-secondary" {% if not user.email %}disabled{% endif %}>Send test email</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

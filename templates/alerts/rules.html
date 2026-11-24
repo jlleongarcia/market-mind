@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+
+{% block title %}Alert Rules — Market Mind{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-header-inner">
+        <div>
+            <h1 class="page-title">Alert Rules</h1>
+            <p class="page-subtitle">
+                Checked every morning against your wishlist and/or portfolio. A rule fires once
+                when its conditions start holding for a company, not every day while they keep holding.
+            </p>
+        </div>
+        <div style="display:flex;gap:10px;">
+            <a href="{% url 'alerts:notification_settings_view' %}" class="btn btn-secondary">Notification settings</a>
+            <a href="{% url 'alerts:rule_create_view' %}" class="btn btn-primary">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                New rule
+            </a>
+        </div>
+    </div>
+</div>
+
+{% if rules %}
+<div style="display:flex;flex-direction:column;gap:14px;max-width:960px;">
+    {% for rule in rules %}
+    <div class="card" {% if not rule.is_active %}style="opacity:0.6;"{% endif %}>
+        <div class="card-header">
+            <span class="card-title">
+                {{ rule.name }}
+                {% if not rule.is_active %}<span class="badge badge-neutral" style="margin-left:6px;">paused</span>{% endif %}
+            </span>
+            <div style="display:flex;gap:6px;">
+                <a href="{% url 'alerts:rule_edit_view' rule.pk %}" class="btn btn-secondary btn-sm">Edit / test</a>
+                <form method="post" style="margin:0;">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="toggle">
+                    <input type="hidden" name="rule_id" value="{{ rule.id }}">
+                    <button type="submit" class="btn btn-secondary btn-sm">{% if rule.is_active %}Pause{% else %}Enable{% endif %}</button>
+                </form>
+                <form method="post" onsubmit="return confirm('Delete this rule?');" style="margin:0;">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="delete">
+                    <input type="hidden" name="rule_id" value="{{ rule.id }}">
+                    <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                </form>
+            </div>
+        </div>
+        <div class="card-body" style="font-size:0.875rem;">
+            <div style="color:var(--text-muted);margin-bottom:8px;">
+                {% if rule.scope == 'SYMBOL' %}{{ rule.symbol }}{% else %}{{ rule.get_scope_display }}{% endif %}
+                · {{ rule.get_match_display }}
+                · cooldown {{ rule.cooldown_days }} day{{ rule.cooldown_days|pluralize }}
+            </div>
+            <ul style="margin:0;padding-left:18px;">
+                {% for c in rule.conditions.all %}
+                <li>{% for key, label in metric_labels.items %}{% if key == c.metric %}{{ label }}{% endif %}{% endfor %}
+                    <strong>{{ c.get_operator_display }} {{ c.value_display }}</strong></li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="card" style="max-width:960px;margin-top:20px;">
+    <div class="card-header"><span class="card-title">Start from a preset</span></div>
+    <div class="card-body" style="display:flex;gap:10px;flex-wrap:wrap;">
+        {% for key, preset in presets.items %}
+        <form method="post" style="margin:0;">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="preset">
+            <input type="hidden" name="preset" value="{{ key }}">
+            <button type="submit" class="btn btn-secondary">{{ preset.name }}</button>
+        </form>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
