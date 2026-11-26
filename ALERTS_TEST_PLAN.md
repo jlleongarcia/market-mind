@@ -20,16 +20,16 @@ All commands run inside the web container (`market-mind-web-1`) via `docker exec
 ## 1. Data layer (new FinancialMetrics fields)
 
 - [x] `docker exec market-mind-web-1 python manage.py update_financial_metrics --all` completes. Note how long it takes compared with before (it now does one extra yfinance call per stock): 2 min, it's fine.
-- [ ] Admin → Financial Metrics: `current_price`, `price_date`, `week52_low`, `week52_high`, `current_yield` and `avg_yield_5y` are filled for most stocks
-- [ ] Spot-check 3–4 stocks against a site you trust (e.g. Seeking Alpha / Koyfin):
-  - [ ] 52-week low/high match
-  - [ ] 5y average yield is in the right ballpark (KO ≈ 2.9%, O ≈ 5.2%). Expect it to read **about 1.5–3.5% higher** than trailing-12-month sites. That gap is intended; see DIVIDEND_AUTOMATION.md → "Current yield & 5-year average yield"
-- [ ] A stock that split recently (e.g. SCHD 3:1) has a sensible 5y average yield (≈ 3.4%, not ⅓ or 3× that)
-- [ ] An ETF has `avg_yield_5y` filled
-- [ ] A stock with under 3 years of history has `avg_yield_5y` empty (on purpose)
-- [ ] A non-dividend stock: price fields filled, yield fields empty, no crash
-- [ ] **Regression:** the **Sync dividends** button on a portfolio still works, and is no slower than before (it skips the history download)
-- [ ] **Regression:** portfolio detail, position detail and the combined view still render correctly
+- [x] Admin → Financial Metrics: `current_price`, `price_date`, `week52_low`, `week52_high`, `current_yield` and `avg_yield_5y` are filled for most stocks
+- [x] Spot-check 3–4 stocks against a site you trust (e.g. Seeking Alpha / Koyfin):
+  - [x] 52-week low/high match
+  - [x] 5y average yield is in the right ballpark (KO ≈ 2.9%, O ≈ 5.2%). Expect it to read **about 1.5–3.5% higher** than trailing-12-month sites. That gap is intended; see DIVIDEND_AUTOMATION.md → "Current yield & 5-year average yield"
+- [x] A stock that split recently (e.g. SCHD 3:1) has a sensible 5y average yield (≈ 3.4%, not ⅓ or 3× that)
+- [x] An ETF has `avg_yield_5y` filled
+- [x] A stock with under 3 years of history has `avg_yield_5y` empty (on purpose)
+- [x] A non-dividend stock: price fields filled, yield fields empty, no crash
+- [x] **Regression:** the **Sync dividends** button on a portfolio still works, and is no slower than before (it skips the history download)
+- [x] **Regression:** portfolio detail, position detail and the combined view still render correctly
 
 ## 2. Wishlist
 
