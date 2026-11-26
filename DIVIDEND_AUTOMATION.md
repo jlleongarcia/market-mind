@@ -1,6 +1,7 @@
 # Dividend Automation
 
-How MarketMind computes **Buy Yield** on purchases, keeps that calculation
+How MarketMind computes **Buy Yield** on purchases (and the current and
+5-year average yields that share its forward basis), keeps that calculation
 accurate over time, and records dividend income against positions —
 including ones that have since been fully sold.
 
@@ -118,6 +119,60 @@ After changing this logic, existing values need a refresh — `manage.py
 update_financial_metrics --all` recomputes and stores it for every tracked
 stock; `manage.py recompute_buy_yields` does the equivalent for `buy_yield`
 on existing transactions. Both are safe to rerun any time.
+
+---
+
+## Current yield & 5-year average yield (forward basis)
+
+Two `FinancialMetrics` fields, refreshed by the daily 9:00 metrics cron and
+used by the wishlist and alert rules ([ALERTS.md](ALERTS.md)):
+
+```
+current_yield = dividend_rate / current price × 100
+avg_yield_5y  = mean over the last 5 years of daily_yield(d)
+daily_yield(d) = annualised dividend known on day d / close on day d × 100
+```
+
+**Both use the same forward basis as Buy Yield**, so all three compare
+like-for-like. On each day, the annualised dividend is the latest regular
+dividend gone ex on or before that day × the inferred payment frequency.
+For ETFs it is the sum of the last `frequency` distributions instead.
+Special dividends are dropped with the same 1.8× rolling-median rule as
+dividend growth.
+
+Implementation: `StockDataFetcher.summarize_price_history`
+(`research/services.py`). It uses one ~6-year daily yfinance pull with
+`auto_adjust=False`, so `Close` is split-adjusted but not
+dividend-adjusted, and `Dividends` is split-adjusted on the same basis. A
+split can't distort the average. The extra year means the 5-year window
+starts with a known dividend. The average is left empty when there are
+fewer than 3 years of daily yields.
+
+### Why it reads higher than most websites
+
+Seeking Alpha, Koyfin and most other sites compute historical yields on a
+**trailing-twelve-months (TTM)** basis: dividends actually paid in the past
+year ÷ price. A forward rate already includes the latest raise, while a TTM
+sum still contains pre-raise payments. **For any company that raises its
+dividend, a forward yield is always slightly above its TTM yield, and the
+gap grows with the dividend growth rate.**
+
+Measured on the same yfinance data (2026-11-26):
+
+| Stock | Forward 5y avg (ours) | TTM 5y avg | Gap |
+|---|---|---|---|
+| KO | 2.88% | 2.84% | +1.7% |
+| PEP | 3.25% | 3.18% | +2.4% |
+| JNJ | 2.77% | 2.72% | +1.9% |
+| O | 5.23% | 5.15% | +1.4% |
+| MSFT | 0.82% | 0.79% | +3.6% |
+
+This is deliberate, not a bug. The alert rule *yield vs its 5y average*
+compares `current_yield` with `avg_yield_5y`, and those must share a basis.
+Mixing a forward current yield with a TTM average would make every dividend
+grower look cheaper than it is, and the rule would fire too easily. Moving
+both to TTM would instead make the current yield lag every raise by up to a
+year, and would break the comparison with your Buy Yields.
 
 ---
 

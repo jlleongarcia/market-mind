@@ -35,14 +35,12 @@ saving state or sending anything.
 | Price vs my average cost (%) | Quantity-weighted across all your portfolios; owned stocks only |
 | P/E (trailing), Payout ratio, FCF payout ratio, Chowder number, 5y dividend growth | Straight from `FinancialMetrics` |
 
-**`avg_yield_5y`** uses the same annualisation as `Transaction.buy_yield`, so
-the two compare like-for-like: for each trading day, the latest regular
-dividend gone ex × inferred payment frequency (ETFs: sum of the last N
-distributions), divided by that day's close; then the mean over 5 years.
-Price and dividends both come split-adjusted from the same yfinance pull, so
-splits can't distort it. Special dividends are dropped (1.8× rolling-median
-rule, as in dividend growth). It's left empty when there's under 3 years of
-history to average.
+Yields use a **forward basis**, the same as Buy Yield: the latest regular
+dividend × payments per year ÷ price. That makes them read about 1.5–3.5%
+higher than websites that use trailing-twelve-months yields. It's
+deliberate, so that current yield and the 5y average compare like-for-like.
+The full method and the measured differences are in
+[DIVIDEND_AUTOMATION.md](DIVIDEND_AUTOMATION.md#current-yield--5-year-average-yield-forward-basis).
 
 ## Rules
 
